@@ -1,3 +1,5 @@
+import 'package:meta/meta.dart';
+
 abstract class Ref {
   T use<T>(Coil<T> coil);
 
@@ -19,26 +21,28 @@ mixin MutableCoil<T> on Coil<T> {}
 class Scope implements Ref {
   Scope() : _bucket = {};
 
-  final Map<int, Object> _bucket;
+  final Map<int, _CoilElement> _bucket;
 
   @override
   T use<T>(Coil<T> coil) {
     switch (_bucket[coil._key]) {
-      case final _MutableCoilState<T> coilState?:
-        return coilState.value;
-      case final T state?:
-        return state;
+      case final _CoilElement<_MutableCoilState<T>> element?:
+        return element.state.value;
+      case final _CoilElement<T> element?:
+        return element.state;
       case _:
         final T state;
+        final _CoilElement element;
         switch (coil) {
           case _MutableValueCoil<T>():
             final coilState = coil.createState(this);
             state = coilState.value;
-            _bucket[coil._key] = coilState;
+            element = _CoilElement<_MutableCoilState<T>>(coilState);
           case _:
             state = coil._factory(this);
-            _bucket[coil._key] = state as Object;
+            element = _CoilElement<T>(state);
         }
+        _bucket[coil._key] = element;
 
         return state;
     }
@@ -47,9 +51,8 @@ class Scope implements Ref {
   @override
   void mutate<T>(MutableCoil<T> coil, T Function(T p1) updater) {
     switch (_bucket[coil._key]) {
-      case final _MutableCoilState<T> coilState?:
-        coilState.value = updater(coilState.value);
-        _bucket[coil._key] = coilState;
+      case final _CoilElement<_MutableCoilState<T>> element?:
+        element.state.value = updater(element.state.value);
       case _:
         return;
     }
@@ -57,13 +60,30 @@ class Scope implements Ref {
 
   @override
   void invalidate<T>(Coil<T> coil) {
-    // TODO: implement invalidate
+    switch (_bucket[coil._key]) {
+      case final _?:
+        _bucket.remove(coil._key);
+      case _:
+        return;
+    }
   }
 }
 
 Coil<T> coil<T>(RefFactory<T> factory) => _ValueCoil(factory);
 
 MutableCoil<T> mutableCoil<T>(RefFactory<T> factory) => _MutableValueCoil(factory);
+
+@optionalTypeArgs
+class _CoilElement<T> {
+  _CoilElement(this._state);
+
+  T get state => _state;
+  T _state;
+
+  set state(T value) {
+    _state = value;
+  }
+}
 
 class _ValueCoil<T> extends Coil<T> {
   _ValueCoil(this._factory);
