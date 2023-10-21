@@ -282,21 +282,22 @@ class _FutureCoil<T> extends Coil<Future<T>> {
       : super._(
           (Ref ref) {
             final completer = Completer<T>();
-            if ((ref as Scope)._owner case final element?) {
+            if ((ref as Scope)._owner case final CoilElement<Future<T>> element?) {
+              _resolve(completer, ref.get(parent));
               element
                 .._invalidateSubscriptions()
-                .._addSubscription(
-                  ref._resolve(parent)._addListener(
-                        (_, next) => switch (next) {
-                          AsyncLoading<T>() || AsyncFailure<T>() => null,
-                          AsyncSuccess<T>(:final value) => completer.complete(value),
-                        },
-                      ),
-                );
+                .._addSubscription(ref._resolve(parent)._addListener((_, next) => _resolve(completer, next)));
             }
             return completer.future;
           },
         );
+
+  static void _resolve<T>(Completer<T> completer, AsyncValue<T> state) {
+    return switch (state) {
+      AsyncLoading<T>() || AsyncFailure<T>() => null,
+      AsyncSuccess<T>(:final value) => completer.complete(value),
+    };
+  }
 
   @override
   CoilElement<Future<T>> createElement() => CoilElement<Future<T>>();
