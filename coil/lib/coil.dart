@@ -117,6 +117,7 @@ class CoilElement<T> {
 
   final Set<CoilListener<T>> _listeners = {};
   final Set<CoilElement> _dependents = {};
+  final Set<VoidCallback> _subscriptions = {};
 
   T get state {
     assert(_state != null, 'Should set the state');
@@ -136,7 +137,9 @@ class CoilElement<T> {
 
   void invalidate() {
     _scope?._elements.remove(_coil);
+    _invalidateSubscriptions();
     _invalidateDependents();
+    _subscriptions.clear();
     _dependents.clear();
   }
 
@@ -144,6 +147,8 @@ class CoilElement<T> {
     _state = null;
     _coil = null;
     _scope = null;
+    _invalidateSubscriptions();
+    _subscriptions.clear();
     _listeners.clear();
     _dependents.clear();
   }
@@ -152,6 +157,8 @@ class CoilElement<T> {
     _listeners.add(listener);
     return () => _listeners.remove(listener);
   }
+
+  void _addSubscription(VoidCallback subscription) => _subscriptions.add(subscription);
 
   void _dependOn(CoilElement element) => element._dependents.add(this);
 
@@ -164,6 +171,12 @@ class CoilElement<T> {
   void _invalidateDependents() {
     for (final element in _dependents) {
       element.invalidate();
+    }
+  }
+
+  void _invalidateSubscriptions() {
+    for (final disposer in _subscriptions) {
+      disposer();
     }
   }
 
@@ -206,6 +219,26 @@ class FutureCoil<T> extends Coil<AsyncValue<T>> with ListenableCoil<AsyncValue<T
                 );
                 return AsyncLoadingValue<T>();
             }
+          },
+        );
+
+  @override
+  CoilElement<AsyncValue<T>> createElement() => CoilElement<AsyncValue<T>>();
+}
+
+@optionalTypeArgs
+class StreamCoil<T> extends Coil<AsyncValue<T>> with ListenableCoil<AsyncValue<T>> {
+  StreamCoil(CoilFactory<Stream<T>> factory, {super.debugName})
+      : super._(
+          (Ref ref) {
+            if ((ref as Scope)._owner case final element?) {
+              element._invalidateSubscriptions();
+              final sub = factory(ref).listen(
+                (value) => element.state = AsyncSuccessValue<T>(value),
+              );
+              element._addSubscription(() => sub.cancel());
+            }
+            return AsyncLoadingValue<T>();
           },
         );
 
