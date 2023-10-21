@@ -66,8 +66,9 @@ class Scope implements Ref {
 
   @override
   CoilSubscription<T> listen<T>(ListenableCoil<T> coil, CoilListener<T> listener) {
-    final element = _resolve(coil);
+    final element = _resolve(coil, mount: false);
     final dispose = element._addListener(listener);
+    _mount(element);
 
     return (
       get: () => element.state,
@@ -78,6 +79,7 @@ class Scope implements Ref {
   @override
   void invalidate<T>(Coil<T> coil) {
     if (_elements[coil] case final element?) {
+      _elements.remove(coil);
       element.invalidate();
     }
   }
@@ -91,20 +93,28 @@ class Scope implements Ref {
     }
   }
 
-  CoilElement<T> _resolve<T>(Coil<T> coil) {
+  CoilElement<T> _resolve<T>(Coil<T> coil, {bool mount = true}) {
     switch (_elements[coil]) {
       case final CoilElement<T> element?:
         _owner?._dependOn(element);
         return element;
       case _:
-        final CoilElement<T> element = coil.createElement()
-          .._coil = coil
-          .._scope = this;
-        _elements[coil] = element..state = coil._factory(_clone(element));
+        final CoilElement<T> element = coil.createElement().._coil = coil;
+        _elements[coil] = element;
         _owner?._dependOn(element);
+        if (mount) {
+          _mount(element);
+        }
 
         return element;
     }
+  }
+
+  void _mount(CoilElement element, [Scope? override]) {
+    final scope = override ?? _clone(element);
+    element
+      .._scope = scope
+      .._state = element._coil?._factory(scope);
   }
 
   Scope _clone(CoilElement owner) => Scope._(owner: owner, bucket: _elements);
@@ -136,13 +146,15 @@ class CoilElement<T> {
   }
 
   void invalidate() {
-    _scope?._elements.remove(_coil);
+    if (_listeners.isEmpty && _dependents.isEmpty) {
+      _scope?._elements.remove(_coil);
+    }
     _invalidateSubscriptions();
     _invalidateDependents();
     _subscriptions.clear();
     _dependents.clear();
 
-    // Future(() => _scope?._resolve(_coil!));
+    Future(() => _scope?._mount(this, _scope));
   }
 
   void dispose() {
