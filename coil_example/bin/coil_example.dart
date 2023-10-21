@@ -12,8 +12,7 @@ final unDelayed = FutureCoil((_) => 1, debugName: 'un-delayed');
 final stream = StreamCoil((_) => Stream.value(1), debugName: 'stream');
 final doubleStream = StreamCoil(
   (ref) async* {
-    final res = ref.get(stream);
-    switch (res) {
+    switch (ref.get(stream)) {
       case AsyncLoading<int>():
       case AsyncFailure<int>():
         break;
@@ -25,8 +24,7 @@ final doubleStream = StreamCoil(
 );
 final cubicStream = StreamCoil(
   (ref) async* {
-    final value = await ref.get(stream.future);
-    yield value * 3;
+    yield (await ref.get(stream.future)) * 3;
   },
   debugName: 'cubic-stream',
 );
@@ -34,43 +32,45 @@ final cubicStream = StreamCoil(
 void main() async {
   final Scope scope = Scope();
 
-  // log(scope.get(result));
-  //
-  // scope.listen(age, (previous, next) {
-  //   log(('age-listener', previous, next));
-  // });
-  //
-  // scope.mutate(age, (value) => value + 1);
-  //
-  // log(scope.get(result));
-  //
-  // scope.invalidate(age);
-  //
-  // log(scope.get(result));
-  //
-  // scope.get(age.state).value++;
-  //
-  // log(scope.get(result));
-  //
-  // scope.listen(delayed, (previous, next) {
-  //   log(('delayed-listener', previous, next));
-  // });
-  //
-  // log(scope.get(unDelayed));
-  //
+  log('result', scope.get(result));
+
+  scope.listen(age, (previous, next) {
+    log('listen-age', (previous, next));
+  });
+
+  scope.mutate(age, (value) => value + 1);
+
+  log('result', scope.get(result));
+
+  scope.invalidate(age);
+
+  log('result', scope.get(result));
+
+  scope.get(age.state).value++;
+
+  log('result', scope.get(result));
+
+  log('await-delayed', await scope.get(delayed.future));
+
+  scope.listen(delayed, (previous, next) {
+    log('listen-delayed', (previous, next));
+  });
+
+  log('un-delayed', scope.get(unDelayed));
+
   scope.listen(stream, (previous, next) {
-    log(('stream-listener', previous, next));
+    log('listen-stream', (previous, next));
   });
 
   scope.listen(doubleStream, (previous, next) {
-    log(('double-stream-listener', previous, next));
+    log('listen-double-stream', (previous, next));
   });
 
   scope.listen(cubicStream, (previous, next) {
-    log(('cubic-stream-listener', previous, next));
+    log('listen-cubic-stream', (previous, next));
   });
 
-  log(await scope.get(cubicStream.future));
+  log('await-cubic-stream', await scope.get(cubicStream.future));
 }
 
-void log<T>(T object) => print(object.toString());
+void log<T>(String tag, T object) => print((tag, object).toString());

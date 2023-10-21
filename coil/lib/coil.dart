@@ -20,7 +20,7 @@ abstract class Ref {
 }
 
 @optionalTypeArgs
-sealed class Coil<T> {
+base class Coil<T> {
   Coil._(this._factory, {this.debugName});
 
   factory Coil(CoilFactory<T> factory, {String? debugName}) = ValueCoil;
@@ -29,7 +29,7 @@ sealed class Coil<T> {
 
   final CoilFactory<T> _factory;
 
-  CoilElement<T> createElement();
+  CoilElement<T> createElement() => CoilElement<T>();
 
   @override
   bool operator ==(Object other) => identical(this, other) || other is Coil && runtimeType == other.runtimeType;
@@ -41,7 +41,8 @@ sealed class Coil<T> {
   String toString() => 'Coil($debugName)[$hashCode]';
 }
 
-mixin ListenableCoil<T> on Coil<T> {}
+base mixin ListenableCoil<T> on Coil<T> {}
+base mixin AsyncListenableCoil<T> implements ListenableCoil<AsyncValue<T>> {}
 
 class Scope implements Ref {
   Scope()
@@ -105,7 +106,6 @@ class Scope implements Ref {
         if (mount) {
           _mount(element);
         }
-
         return element;
     }
   }
@@ -205,92 +205,82 @@ class CoilElement<T> {
 }
 
 @optionalTypeArgs
-class ValueCoil<T> extends Coil<T> {
+final class ValueCoil<T> extends Coil<T> {
   ValueCoil(super.factory, {super.debugName}) : super._();
-
-  @override
-  CoilElement<T> createElement() => CoilElement<T>();
 }
 
 @optionalTypeArgs
-class MutableCoil<T> extends ValueCoil<T> with ListenableCoil<T> {
-  MutableCoil(super.factory, {super.debugName});
+final class MutableCoil<T> extends Coil<T> with ListenableCoil<T> {
+  MutableCoil(super.factory, {super.debugName}) : super._();
 
   late final state = _StateCoil(this, debugName: '$debugName-state');
 }
 
 @optionalTypeArgs
-class FutureCoil<T> extends Coil<AsyncValue<T>> with ListenableCoil<AsyncValue<T>> {
-  FutureCoil(CoilFactory<FutureOr<T>> factory, {super.debugName})
-      : super._(
-          (Ref ref) {
-            switch (factory(ref)) {
-              case T value:
-                return AsyncSuccess<T>(value);
-              case Future<T> future:
-                future.then(
-                  (value) => (ref as Scope)._owner?.state = AsyncSuccess<T>(value),
-                );
-                return AsyncLoading<T>();
-            }
-          },
-        );
-
-  @override
-  CoilElement<AsyncValue<T>> createElement() => CoilElement<AsyncValue<T>>();
-}
-
-@optionalTypeArgs
-class StreamCoil<T> extends Coil<AsyncValue<T>> with ListenableCoil<AsyncValue<T>> {
-  StreamCoil(CoilFactory<Stream<T>> factory, {super.debugName})
-      : super._(
-          (Ref ref) {
-            if ((ref as Scope)._owner case final element?) {
-              element._invalidateSubscriptions();
-              final sub = factory(ref).listen(
-                (value) => element.state = AsyncSuccess<T>(value),
-              );
-              element._addSubscription(() => sub.cancel());
-            }
-            return AsyncLoading<T>();
-          },
-        );
+base class _AsyncCoil<T, U> extends Coil<AsyncValue<T>> with AsyncListenableCoil<T> {
+  _AsyncCoil(super.factory, {super.debugName}) : super._();
 
   late final future = _FutureCoil(this, debugName: '$debugName-future');
-
-  @override
-  CoilElement<AsyncValue<T>> createElement() => CoilElement<AsyncValue<T>>();
 }
 
 @optionalTypeArgs
-class _StateCoil<T> extends Coil<_CoilState<T>> {
+final class FutureCoil<T> extends _AsyncCoil<T, FutureOr<T>> {
+  FutureCoil(CoilFactory<FutureOr<T>> factory, {super.debugName})
+      : super((Ref ref) {
+          switch (factory(ref)) {
+            case T value:
+              return AsyncSuccess<T>(value);
+            case Future<T> future:
+              future.then(
+                (value) => (ref as Scope)._owner?.state = AsyncSuccess<T>(value),
+              );
+              return AsyncLoading<T>();
+          }
+        });
+}
+
+@optionalTypeArgs
+final class StreamCoil<T> extends _AsyncCoil<T, Stream<T>> {
+  StreamCoil(CoilFactory<Stream<T>> factory, {super.debugName})
+      : super((Ref ref) {
+          if ((ref as Scope)._owner case final element?) {
+            element._invalidateSubscriptions();
+            final sub = factory(ref).listen(
+              (value) => element.state = AsyncSuccess<T>(value),
+            );
+            element._addSubscription(() => sub.cancel());
+          }
+          return AsyncLoading<T>();
+        });
+}
+
+@optionalTypeArgs
+final class _StateCoil<T> extends Coil<_CoilState<T>> {
   _StateCoil(MutableCoil<T> parent, {super.debugName})
-      : super._(
-          (Ref ref) => _CoilState(
-            () => (ref as Scope)._resolve(parent).state,
-            (value) => (ref as Scope)._resolve(parent).state = value,
-          ),
-        );
-
-  @override
-  CoilElement<_CoilState<T>> createElement() => CoilElement<_CoilState<T>>();
+      : super._((Ref ref) {
+          final scope = (ref as Scope);
+          return _CoilState(
+            () => scope._resolve(parent).state,
+            (value) => scope._resolve(parent).state = value,
+          );
+        });
 }
 
 @optionalTypeArgs
-class _FutureCoil<T> extends Coil<Future<T>> {
-  _FutureCoil(StreamCoil<T> parent, {super.debugName})
-      : super._(
-          (Ref ref) {
-            final completer = Completer<T>();
-            if ((ref as Scope)._owner case final CoilElement<Future<T>> element?) {
-              _resolve(completer, ref.get(parent));
-              element
-                .._invalidateSubscriptions()
-                .._addSubscription(ref._resolve(parent)._addListener((_, next) => _resolve(completer, next)));
-            }
-            return completer.future;
-          },
-        );
+final class _FutureCoil<T> extends Coil<Future<T>> {
+  _FutureCoil(AsyncListenableCoil<T> parent, {super.debugName})
+      : super._((Ref ref) {
+          final completer = Completer<T>();
+          if ((ref as Scope)._owner case final element?) {
+            _resolve(completer, ref.get(parent));
+            element
+              .._invalidateSubscriptions()
+              .._addSubscription(
+                ref._resolve(parent)._addListener((_, next) => _resolve(completer, next)),
+              );
+          }
+          return completer.future;
+        });
 
   static void _resolve<T>(Completer<T> completer, AsyncValue<T> state) {
     return switch (state) {
@@ -298,9 +288,6 @@ class _FutureCoil<T> extends Coil<Future<T>> {
       AsyncSuccess<T>(:final value) => completer.complete(value),
     };
   }
-
-  @override
-  CoilElement<Future<T>> createElement() => CoilElement<Future<T>>();
 }
 
 class _CoilState<T> {
