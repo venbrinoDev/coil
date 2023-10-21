@@ -81,12 +81,12 @@ class Scope implements Ref {
   void invalidate<T>(Coil<T> coil) {
     if (_elements[coil] case final element?) {
       _elements.remove(coil);
-      element.invalidate();
+      element._invalidate();
     }
   }
 
   void dispose() {
-    _owner?.invalidate();
+    _owner?._invalidate();
     if (_owner == null) {
       _elements
         ..forEach((_, element) => element.dispose())
@@ -110,30 +110,23 @@ class Scope implements Ref {
     }
   }
 
-  void _mount(CoilElement element, [Scope? override]) {
-    final scope = override ?? _clone(element);
-    element
-      .._scope = scope
-      .._state = element._coil?._factory(scope);
-  }
+  void _mount(CoilElement element) => element
+    .._scope ??= _clone(element)
+    .._mount();
 
   Scope _clone(CoilElement owner) => Scope._(owner: owner, bucket: _elements);
 }
 
 @optionalTypeArgs
 class CoilElement<T> {
-  late Scope? _scope;
-  late Coil? _coil;
+  Scope? _scope;
+  Coil<T>? _coil;
 
   final Set<CoilListener<T>> _listeners = {};
   final Set<CoilElement> _dependents = {};
   final Set<VoidCallback> _subscriptions = {};
 
-  T get state {
-    assert(_state != null, 'Should set the state');
-    return _state!;
-  }
-
+  T get state => _state!;
   T? _state;
 
   set state(T value) {
@@ -145,18 +138,6 @@ class CoilElement<T> {
     }
   }
 
-  void invalidate() {
-    if (_listeners.isEmpty && _dependents.isEmpty) {
-      _scope?._elements.remove(_coil);
-    }
-    _invalidateSubscriptions();
-    _invalidateDependents();
-    _subscriptions.clear();
-    _dependents.clear();
-
-    Future(() => _scope?._mount(this, _scope));
-  }
-
   void dispose() {
     _state = null;
     _coil = null;
@@ -165,6 +146,24 @@ class CoilElement<T> {
     _subscriptions.clear();
     _listeners.clear();
     _dependents.clear();
+  }
+
+  void _mount() {
+    if (_scope case final scope?) {
+      _state = _coil?._factory(scope);
+    }
+  }
+
+  void _invalidate() {
+    if (_listeners.isEmpty && _dependents.isEmpty) {
+      _scope?._elements.remove(_coil);
+    }
+    _invalidateSubscriptions();
+    _invalidateDependents();
+    _subscriptions.clear();
+    _dependents.clear();
+
+    Future(() => _mount());
   }
 
   VoidCallback _addListener(CoilListener<T> listener) {
@@ -183,8 +182,8 @@ class CoilElement<T> {
   }
 
   void _invalidateDependents() {
-    for (final element in [..._dependents].reversed) {
-      element.invalidate();
+    for (final element in _dependents) {
+      element._invalidate();
     }
   }
 
