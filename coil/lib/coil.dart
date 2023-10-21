@@ -1,14 +1,16 @@
 import 'package:meta/meta.dart';
 
 typedef VoidCallback = void Function();
+typedef ValueCallback<T> = T Function();
 typedef CoilFactory<T> = T Function(Ref ref);
+typedef CoilMutation<T> = T Function(T value);
 typedef CoilListener<T> = void Function(T? previous, T next);
-typedef CoilSubscription<T> = ({T Function() get, VoidCallback dispose});
+typedef CoilSubscription<T> = ({ValueCallback<T> get, VoidCallback dispose});
 
 abstract class Ref {
   T get<T>(Coil<T> coil);
 
-  void mutate<T>(MutableCoil<T> coil, T Function(T value) updater);
+  void mutate<T>(MutableCoil<T> coil, CoilMutation<T> updater);
 
   CoilSubscription<T> listen<T>(MutableCoil<T> coil, CoilListener<T> listener);
 
@@ -25,19 +27,16 @@ sealed class Coil<T> {
 
   final CoilFactory<T> _factory;
 
-  late final int _key = identityHashCode(this);
-
   CoilElement<T> createElement();
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) || other is Coil && runtimeType == other.runtimeType && _key == other._key;
+  bool operator ==(Object other) => identical(this, other) || other is Coil && runtimeType == other.runtimeType;
 
   @override
-  int get hashCode => _key.hashCode;
+  int get hashCode => identityHashCode(this);
 
   @override
-  String toString() => 'Coil($debugName)[$_key]';
+  String toString() => 'Coil($debugName)[$hashCode]';
 }
 
 class Scope implements Ref {
@@ -49,14 +48,14 @@ class Scope implements Ref {
       : _owner = owner,
         _elements = bucket;
 
-  late final CoilElement? _owner;
+  final CoilElement? _owner;
   final Map<Coil, CoilElement> _elements;
 
   @override
   T get<T>(Coil<T> coil) => _resolve(coil).state;
 
   @override
-  void mutate<T>(MutableCoil<T> coil, T Function(T value) updater) {
+  void mutate<T>(MutableCoil<T> coil, CoilMutation<T> updater) {
     final state = get(coil.state);
     state.value = updater(state.value);
   }
@@ -79,21 +78,26 @@ class Scope implements Ref {
     }
   }
 
-  CoilElement<T> _resolve<T>(Coil<T> coil, {bool link = true}) {
+  void dispose() {
+    _owner?.invalidate();
+    if (_owner == null) {
+      _elements
+        ..forEach((_, element) => element.dispose())
+        ..clear();
+    }
+  }
+
+  CoilElement<T> _resolve<T>(Coil<T> coil) {
     switch (_elements[coil]) {
       case final CoilElement<T> element?:
-        if (link) {
-          _owner?._dependOn(element);
-        }
+        _owner?._dependOn(element);
         return element;
       case _:
         final CoilElement<T> element = coil.createElement()
           .._coil = coil
           .._scope = this;
         _elements[coil] = element..state = coil._factory(_clone(element));
-        if (link) {
-          _owner?._dependOn(element);
-        }
+        _owner?._dependOn(element);
 
         return element;
     }
@@ -104,8 +108,8 @@ class Scope implements Ref {
 
 @optionalTypeArgs
 class CoilElement<T> {
-  late final Scope _scope;
-  late final Coil _coil;
+  late Scope? _scope;
+  late Coil? _coil;
 
   final Set<CoilListener<T>> _listeners = {};
   final Set<CoilElement> _dependents = {};
@@ -127,8 +131,16 @@ class CoilElement<T> {
   }
 
   void invalidate() {
-    _scope._elements.remove(_coil);
+    _scope?._elements.remove(_coil);
     _invalidateDependents();
+    _dependents.clear();
+  }
+
+  void dispose() {
+    _state = null;
+    _coil = null;
+    _scope = null;
+    _listeners.clear();
     _dependents.clear();
   }
 
@@ -153,7 +165,7 @@ class CoilElement<T> {
 
   @override
   String toString() {
-    if (_coil.debugName case final debugName?) {
+    if (_coil?.debugName case final debugName?) {
       return 'CoilElement($debugName)';
     }
 
@@ -181,8 +193,8 @@ class _StateCoil<T> extends Coil<_CoilState<T>> {
   _StateCoil(MutableCoil<T> parent, {String? debugName})
       : super._(
           (Ref ref) => _CoilState(
-            () => (ref as Scope)._resolve(parent, link: false).state,
-            (value) => (ref as Scope)._resolve(parent, link: false).state = value,
+            () => (ref as Scope)._resolve(parent).state,
+            (value) => (ref as Scope)._resolve(parent).state = value,
           ),
           debugName: debugName,
         );
@@ -194,7 +206,7 @@ class _StateCoil<T> extends Coil<_CoilState<T>> {
 class _CoilState<T> {
   _CoilState(this._factory, this._onUpdate);
 
-  final T Function() _factory;
+  final ValueCallback<T> _factory;
   final void Function(T value) _onUpdate;
 
   T get value => _value;

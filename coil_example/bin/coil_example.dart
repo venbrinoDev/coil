@@ -17,9 +17,17 @@ void main() {
 
   scope.mutate(age, (int value) => value + 1);
 
+  log(scope.get(result));
+
+  scope.invalidate(age);
+
+  log(scope.get(result));
+
   scope.get(age.state).value++;
 
   log(scope.get(result));
+
+  scope.dispose();
 }
 
 void log<T>(T object) => print(object.toString());
