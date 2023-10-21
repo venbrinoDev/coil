@@ -141,6 +141,8 @@ class CoilElement<T> {
     _invalidateDependents();
     _subscriptions.clear();
     _dependents.clear();
+
+    // Future(() => _scope?._resolve(_coil!));
   }
 
   void dispose() {
@@ -169,7 +171,7 @@ class CoilElement<T> {
   }
 
   void _invalidateDependents() {
-    for (final element in _dependents) {
+    for (final element in [..._dependents].reversed) {
       element.invalidate();
     }
   }
@@ -212,12 +214,12 @@ class FutureCoil<T> extends Coil<AsyncValue<T>> with ListenableCoil<AsyncValue<T
           (Ref ref) {
             switch (factory(ref)) {
               case T value:
-                return AsyncSuccessValue<T>(value);
+                return AsyncSuccess<T>(value);
               case Future<T> future:
                 future.then(
-                  (value) => (ref as Scope)._owner?.state = AsyncSuccessValue<T>(value),
+                  (value) => (ref as Scope)._owner?.state = AsyncSuccess<T>(value),
                 );
-                return AsyncLoadingValue<T>();
+                return AsyncLoading<T>();
             }
           },
         );
@@ -234,13 +236,15 @@ class StreamCoil<T> extends Coil<AsyncValue<T>> with ListenableCoil<AsyncValue<T
             if ((ref as Scope)._owner case final element?) {
               element._invalidateSubscriptions();
               final sub = factory(ref).listen(
-                (value) => element.state = AsyncSuccessValue<T>(value),
+                (value) => element.state = AsyncSuccess<T>(value),
               );
               element._addSubscription(() => sub.cancel());
             }
-            return AsyncLoadingValue<T>();
+            return AsyncLoading<T>();
           },
         );
+
+  late final future = _FutureCoil(this, debugName: '${debugName}Future');
 
   @override
   CoilElement<AsyncValue<T>> createElement() => CoilElement<AsyncValue<T>>();
@@ -258,6 +262,31 @@ class _StateCoil<T> extends Coil<_CoilState<T>> {
 
   @override
   CoilElement<_CoilState<T>> createElement() => CoilElement<_CoilState<T>>();
+}
+
+@optionalTypeArgs
+class _FutureCoil<T> extends Coil<Future<T>> {
+  _FutureCoil(StreamCoil<T> parent, {super.debugName})
+      : super._(
+          (Ref ref) {
+            final completer = Completer<T>();
+            if ((ref as Scope)._owner case final element?) {
+              element._invalidateSubscriptions();
+              final sub = ref.listen(
+                parent,
+                (_, next) => switch (next) {
+                  AsyncLoading<T>() || AsyncFailure<T>() => null,
+                  AsyncSuccess<T>(:final value) => completer.complete(value),
+                },
+              );
+              element._addSubscription(() => sub.dispose());
+            }
+            return completer.future;
+          },
+        );
+
+  @override
+  CoilElement<Future<T>> createElement() => CoilElement<Future<T>>();
 }
 
 class _CoilState<T> {
@@ -291,32 +320,32 @@ sealed class AsyncValue<T> {
   const AsyncValue();
 }
 
-class AsyncLoadingValue<T> implements AsyncValue<T> {
-  const AsyncLoadingValue();
+class AsyncLoading<T> implements AsyncValue<T> {
+  const AsyncLoading();
 
   @override
-  String toString() => 'AsyncLoadingValue<$T>()';
+  String toString() => 'AsyncLoading<$T>()';
 }
 
-class AsyncSuccessValue<T> implements AsyncValue<T> {
-  const AsyncSuccessValue(this.value);
+class AsyncSuccess<T> implements AsyncValue<T> {
+  const AsyncSuccess(this.value);
 
   final T value;
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || other is AsyncSuccessValue && runtimeType == other.runtimeType && value == other.value;
+      identical(this, other) || other is AsyncSuccess && runtimeType == other.runtimeType && value == other.value;
 
   @override
   int get hashCode => value.hashCode;
 
   @override
-  String toString() => 'AsyncSuccessValue<$T>($value)';
+  String toString() => 'AsyncSuccess<$T>($value)';
 }
 
-class AsyncFailureValue<T> implements AsyncValue<T> {
-  const AsyncFailureValue();
+class AsyncFailure<T> implements AsyncValue<T> {
+  const AsyncFailure();
 
   @override
-  String toString() => 'AsyncFailureValue<$T>()';
+  String toString() => 'AsyncFailure<$T>()';
 }
