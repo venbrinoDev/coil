@@ -216,7 +216,7 @@ class ValueCoil<T> extends Coil<T> {
 class MutableCoil<T> extends ValueCoil<T> with ListenableCoil<T> {
   MutableCoil(super.factory, {super.debugName});
 
-  late final state = _StateCoil(this, debugName: '${debugName}State');
+  late final state = _StateCoil(this, debugName: '$debugName-state');
 }
 
 @optionalTypeArgs
@@ -256,7 +256,7 @@ class StreamCoil<T> extends Coil<AsyncValue<T>> with ListenableCoil<AsyncValue<T
           },
         );
 
-  late final future = _FutureCoil(this, debugName: '${debugName}Future');
+  late final future = _FutureCoil(this, debugName: '$debugName-future');
 
   @override
   CoilElement<AsyncValue<T>> createElement() => CoilElement<AsyncValue<T>>();
@@ -283,15 +283,16 @@ class _FutureCoil<T> extends Coil<Future<T>> {
           (Ref ref) {
             final completer = Completer<T>();
             if ((ref as Scope)._owner case final element?) {
-              element._invalidateSubscriptions();
-              final sub = ref.listen(
-                parent,
-                (_, next) => switch (next) {
-                  AsyncLoading<T>() || AsyncFailure<T>() => null,
-                  AsyncSuccess<T>(:final value) => completer.complete(value),
-                },
-              );
-              element._addSubscription(() => sub.dispose());
+              element
+                .._invalidateSubscriptions()
+                .._addSubscription(
+                  ref._resolve(parent)._addListener(
+                        (_, next) => switch (next) {
+                          AsyncLoading<T>() || AsyncFailure<T>() => null,
+                          AsyncSuccess<T>(:final value) => completer.complete(value),
+                        },
+                      ),
+                );
             }
             return completer.future;
           },
