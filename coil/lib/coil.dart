@@ -1,5 +1,10 @@
 import 'package:meta/meta.dart';
 
+typedef VoidCallback = void Function();
+typedef CoilFactory<T> = T Function(Ref ref);
+typedef CoilListener<T> = void Function(T? previous, T next);
+typedef CoilSubscription<T> = ({T Function() get, VoidCallback dispose});
+
 abstract class Ref {
   T get<T>(Coil<T> coil);
 
@@ -9,10 +14,6 @@ abstract class Ref {
 
   void invalidate<T>(Coil<T> coil);
 }
-
-typedef CoilFactory<T> = T Function(Ref ref);
-typedef CoilListener<T> = void Function(T? previous, T next);
-typedef CoilSubscription<T> = ({T Function() get, Function() dispose});
 
 @optionalTypeArgs
 sealed class Coil<T> {
@@ -34,6 +35,9 @@ sealed class Coil<T> {
 
   @override
   int get hashCode => _key.hashCode;
+
+  @override
+  String toString() => 'Coil($debugName)[$_key]';
 }
 
 class Scope implements Ref {
@@ -75,24 +79,27 @@ class Scope implements Ref {
     }
   }
 
-  CoilElement<T> _resolve<T>(Coil<T> coil) {
+  CoilElement<T> _resolve<T>(Coil<T> coil, {bool link = true}) {
     switch (_elements[coil]) {
-      case final CoilElement<T> element:
-        _owner?._dependOn(element);
+      case final CoilElement<T> element?:
+        if (link) {
+          _owner?._dependOn(element);
+        }
         return element;
       case _:
         final CoilElement<T> element = coil.createElement()
           .._coil = coil
           .._scope = this;
-        element.state = coil._factory(_clone(element));
-        _elements[coil] = element;
-        _owner?._dependOn(element);
+        _elements[coil] = element..state = coil._factory(_clone(element));
+        if (link) {
+          _owner?._dependOn(element);
+        }
 
         return element;
     }
   }
 
-  Scope _clone(CoilElement owner) => Scope._(owner: owner, bucket: {..._elements});
+  Scope _clone(CoilElement owner) => Scope._(owner: owner, bucket: _elements);
 }
 
 @optionalTypeArgs
@@ -125,7 +132,7 @@ class CoilElement<T> {
     _dependents.clear();
   }
 
-  void Function() _addListener(CoilListener<T> listener) {
+  VoidCallback _addListener(CoilListener<T> listener) {
     _listeners.add(listener);
     return () => _listeners.remove(listener);
   }
@@ -174,8 +181,8 @@ class _StateCoil<T> extends Coil<_CoilState<T>> {
   _StateCoil(MutableCoil<T> parent, {String? debugName})
       : super._(
           (Ref ref) => _CoilState(
-            () => (ref as Scope)._resolve(parent).state,
-            (value) => (ref as Scope)._resolve(parent).state = value,
+            () => (ref as Scope)._resolve(parent, link: false).state,
+            (value) => (ref as Scope)._resolve(parent, link: false).state = value,
           ),
           debugName: debugName,
         );
@@ -199,6 +206,13 @@ class _CoilState<T> {
       _onUpdate(_value);
     }
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is _CoilState && runtimeType == other.runtimeType && _value == other._value;
+
+  @override
+  int get hashCode => _value.hashCode;
 
   @override
   String toString() => 'CoilState($_value)';
