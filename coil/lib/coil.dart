@@ -212,18 +212,18 @@ final class ValueCoil<T> extends Coil<T> {
 final class MutableCoil<T> extends Coil<T> with ListenableCoil<T> {
   MutableCoil(super.factory, {super.debugName}) : super._();
 
-  late final state = _StateCoil(this, debugName: '$debugName-state');
+  late final state = StateCoil(this, debugName: '$debugName-state');
 }
 
 @optionalTypeArgs
-base class _AsyncCoil<T, U> extends Coil<AsyncValue<T>> with AsyncListenableCoil<T> {
-  _AsyncCoil(super.factory, {super.debugName}) : super._();
+base class _AsyncValueCoil<T, U> extends Coil<AsyncValue<T>> with AsyncListenableCoil<T> {
+  _AsyncValueCoil(super.factory, {super.debugName}) : super._();
 
-  late final future = _FutureCoil(this, debugName: '$debugName-future');
+  late final future = AsyncCoil(this, debugName: '$debugName-future');
 }
 
 @optionalTypeArgs
-final class FutureCoil<T> extends _AsyncCoil<T, FutureOr<T>> {
+final class FutureCoil<T> extends _AsyncValueCoil<T, FutureOr<T>> {
   FutureCoil(CoilFactory<FutureOr<T>> factory, {super.debugName})
       : super((Ref ref) {
           switch (factory(ref)) {
@@ -239,7 +239,7 @@ final class FutureCoil<T> extends _AsyncCoil<T, FutureOr<T>> {
 }
 
 @optionalTypeArgs
-final class StreamCoil<T> extends _AsyncCoil<T, Stream<T>> {
+final class StreamCoil<T> extends _AsyncValueCoil<T, Stream<T>> {
   StreamCoil(CoilFactory<Stream<T>> factory, {super.debugName})
       : super((Ref ref) {
           if ((ref as Scope)._owner case final element?) {
@@ -254,8 +254,8 @@ final class StreamCoil<T> extends _AsyncCoil<T, Stream<T>> {
 }
 
 @optionalTypeArgs
-final class _StateCoil<T> extends Coil<_CoilState<T>> {
-  _StateCoil(MutableCoil<T> parent, {super.debugName})
+final class StateCoil<T> extends Coil<_CoilState<T>> {
+  StateCoil(MutableCoil<T> parent, {super.debugName})
       : super._((Ref ref) {
           final scope = (ref as Scope);
           return _CoilState(
@@ -266,8 +266,8 @@ final class _StateCoil<T> extends Coil<_CoilState<T>> {
 }
 
 @optionalTypeArgs
-final class _FutureCoil<T> extends Coil<Future<T>> {
-  _FutureCoil(AsyncListenableCoil<T> parent, {super.debugName})
+final class AsyncCoil<T> extends Coil<Future<T>> {
+  AsyncCoil(AsyncListenableCoil<T> parent, {super.debugName})
       : super._((Ref ref) {
           final completer = Completer<T>();
           if ((ref as Scope)._owner case final element?) {
