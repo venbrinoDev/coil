@@ -1,105 +1,92 @@
 import 'package:meta/meta.dart';
 
 abstract class Ref {
-  T use<T>(Coil<T> coil);
+  T get<T>(Coil<T> coil);
 
-  void mutate<T>(MutableCoil<T> coil, T Function(T) updater);
+  CoilSubscription<T> listen<T>(MutableCoil<T> coil, CoilListener<T> listener);
 
   void invalidate<T>(Coil<T> coil);
 }
 
-typedef RefFactory<T> = T Function(Ref);
+typedef CoilFactory<T> = T Function(Ref ref);
+typedef CoilListener<T> = void Function(T? previous, T next);
+typedef CoilSubscription<T> = ({T Function() get, Function() dispose});
 
+@optionalTypeArgs
 sealed class Coil<T> {
-  Coil(this._factory, {this.debugName});
+  Coil._(this._factory, {this.debugName});
+
+  factory Coil(CoilFactory<T> factory, {String? debugName}) = ValueCoil;
 
   final String? debugName;
 
-  final RefFactory<T> _factory;
+  final CoilFactory<T> _factory;
 
   late final int _key = identityHashCode(this);
-}
 
-mixin MutableCoil<T> on Coil<T> {}
+  CoilElement<T> createElement();
+}
 
 class Scope implements Ref {
   Scope()
       : _owner = null,
         _elements = {};
 
-  Scope._({required _CoilElement owner, required Map<int, _CoilElement> bucket})
+  Scope._({required CoilElement owner, required Map<int, CoilElement> bucket})
       : _owner = owner,
         _elements = bucket;
 
-  late final _CoilElement? _owner;
-  final Map<int, _CoilElement> _elements;
+  late final CoilElement? _owner;
+  final Map<int, CoilElement> _elements;
 
   @override
-  T use<T>(Coil<T> coil) {
-    switch (_elements[coil._key]) {
-      case final _CoilElement<_MutableCoilState<T>> element?:
-        _owner?._dependOn(element);
-        return element.state.value;
-      case final _CoilElement<T> element?:
-        _owner?._dependOn(element);
-        return element.state;
-      case _:
-        final T state;
-        final _CoilElement element;
-        switch (coil) {
-          case _MutableValueCoil<T>():
-            final stateFactory = coil.createStateFactory();
-            element = _CoilElement<_MutableCoilState<T>>(this, coil);
-            element.state = stateFactory(_clone(element));
-            state = element.state.value;
-          case _:
-            element = _CoilElement<T>(this, coil);
-            element.state = coil._factory(_clone(element));
-            state = element.state;
-        }
-        _elements[coil._key] = element;
-        _owner?._dependOn(element);
-
-        return state;
-    }
-  }
+  T get<T>(Coil<T> coil) => _resolve(coil).state;
 
   @override
-  void mutate<T>(MutableCoil<T> coil, T Function(T p1) updater) {
-    switch (_elements[coil._key]) {
-      case final _CoilElement<_MutableCoilState<T>> element?:
-        element.state.value = updater(element.state.value);
-      case _:
-        return;
-    }
+  CoilSubscription<T> listen<T>(MutableCoil<T> coil, CoilListener<T> listener) {
+    void fn(CoilState<T>? previous, CoilState<T> next) => listener(previous?.value, next.value);
+    final element = _resolve(coil).._listeners.add(fn);
+
+    return (
+      get: () => element.state.value,
+      dispose: () => element._listeners.remove(fn),
+    );
   }
 
   @override
   void invalidate<T>(Coil<T> coil) {
-    switch (_elements[coil._key]) {
-      case final _?:
-        _elements.remove(coil._key);
-      case _:
-        return;
+    if (_elements[coil._key] case final element?) {
+      element.invalidate();
     }
   }
 
-  Scope _clone(_CoilElement owner) => Scope._(owner: owner, bucket: {..._elements});
+  CoilElement<T> _resolve<T>(Coil<T> coil) {
+    switch (_elements[coil._key]) {
+      case final CoilElement<T> element?:
+        _owner?._dependOn(element);
+        return element;
+      case _:
+        final CoilElement<T> element = coil.createElement()
+          .._coil = coil
+          .._scope = this;
+        element.state = coil._factory(_clone(element));
+        _elements[coil._key] = element;
+        _owner?._dependOn(element);
+
+        return element;
+    }
+  }
+
+  Scope _clone(CoilElement owner) => Scope._(owner: owner, bucket: {..._elements});
 }
 
-Coil<T> coil<T>(RefFactory<T> factory, {String? debugName}) => _ValueCoil<T>(factory, debugName: debugName);
-
-MutableCoil<T> mutableCoil<T>(RefFactory<T> factory, {String? debugName}) =>
-    _MutableValueCoil<T>(factory, debugName: debugName);
-
 @optionalTypeArgs
-class _CoilElement<T> {
-  _CoilElement(this._scope, this._coil);
+class CoilElement<T> {
+  late final Scope _scope;
+  late final Coil _coil;
 
-  final Scope _scope;
-  final Coil _coil;
-
-  final Set<_CoilElement> _dependents = {};
+  final Set<CoilListener<T>> _listeners = {};
+  final Set<CoilElement> _dependents = {};
 
   T get state {
     assert(_state != null, 'Should set the state');
@@ -110,7 +97,9 @@ class _CoilElement<T> {
 
   set state(T value) {
     if (_state != value) {
+      final oldState = _state;
       _state = value;
+      _notifyListeners(oldState);
       _invalidateDependents();
     }
   }
@@ -121,7 +110,13 @@ class _CoilElement<T> {
     _dependents.clear();
   }
 
-  void _dependOn(_CoilElement element) => element._dependents.add(this);
+  void _dependOn(CoilElement element) => element._dependents.add(this);
+
+  void _notifyListeners(T? oldState) {
+    for (final listener in _listeners) {
+      listener(oldState, state);
+    }
+  }
 
   void _invalidateDependents() {
     for (final element in _dependents) {
@@ -139,24 +134,40 @@ class _CoilElement<T> {
   }
 }
 
-class _ValueCoil<T> extends Coil<T> {
-  _ValueCoil(super._factory, {super.debugName});
+@optionalTypeArgs
+class ValueCoil<T> extends Coil<T> {
+  ValueCoil(super.factory, {super.debugName}) : super._();
+
+  @override
+  CoilElement<T> createElement() => CoilElement<T>();
 }
 
-class _MutableValueCoil<T> extends Coil<T> with MutableCoil<T> {
-  _MutableValueCoil(super._factory, {super.debugName});
+@optionalTypeArgs
+class MutableCoil<T> extends Coil<CoilState<T>> {
+  MutableCoil(CoilFactory<T> factory, {String? debugName})
+      : super._(
+          (Ref ref) => CoilState(
+            () => factory(ref),
+            (state, value) {
+              if ((ref as Scope)._owner case final element?) {
+                final previousState = element.state;
+                element._invalidateDependents();
+                element._notifyListeners(previousState);
+              }
+            },
+          ),
+          debugName: debugName,
+        );
 
-  _MutableCoilState<T> Function(Scope scope) createStateFactory() => (Scope scope) => _MutableCoilState(
-        () => _factory(scope),
-        () => scope._owner?._invalidateDependents(),
-      );
+  @override
+  CoilElement<CoilState<T>> createElement() => CoilElement<CoilState<T>>();
 }
 
-class _MutableCoilState<T> {
-  _MutableCoilState(this._factory, this._onUpdate);
+class CoilState<T> {
+  CoilState(this._factory, this._onUpdate);
 
   final T Function() _factory;
-  final void Function() _onUpdate;
+  final void Function(CoilState<T> state, T value) _onUpdate;
 
   T get value => _value;
   late T _value = _factory();
@@ -164,7 +175,7 @@ class _MutableCoilState<T> {
   set value(T value) {
     if (value != _value) {
       _value = value;
-      _onUpdate();
+      _onUpdate(this, _value);
     }
   }
 

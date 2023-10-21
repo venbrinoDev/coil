@@ -1,19 +1,24 @@
 import 'package:coil/coil.dart';
 
-final firstname = coil((_) => 'First', debugName: 'firstname');
-final lastname = coil((_) => 'Last', debugName: 'lastname');
-final age = mutableCoil((_) => 0, debugName: 'age');
-final fullname = coil((ref) => '${ref.use(firstname)} ${ref.use(lastname)}', debugName: 'fullname');
-final result = coil((ref) => '${ref.use(fullname)} (${ref.use(age)})', debugName: 'result');
+final Coil<String> firstname = Coil((_) => 'First', debugName: 'firstname');
+final Coil<String> lastname = Coil((_) => 'Last', debugName: 'lastname');
+final MutableCoil<int> age = MutableCoil((_) => 0, debugName: 'age');
+final Coil<String> fullname = Coil((Ref ref) => '${ref.get(firstname)} ${ref.get(lastname)}', debugName: 'fullname');
+final Coil<String> result = Coil((Ref ref) => '${ref.get(fullname)} (${ref.get(age)})', debugName: 'result');
 
 void main() {
-  final scope = Scope();
+  final Scope scope = Scope();
 
-  print(scope.use<int>(age));
-  print(scope.use(result));
+  print(scope.get(age).value);
+  print(scope.get(result));
 
-  scope.mutate(age, (age) => age + 1);
+  scope.listen(age, (int? previous, int next) {
+    print((previous, next));
+  });
 
-  print(scope.use<int>(age));
-  print(scope.use(result));
+  scope.get(age).value++;
+  scope.get(age).value++;
+
+  print(scope.get(age).value);
+  print(scope.get(result));
 }
