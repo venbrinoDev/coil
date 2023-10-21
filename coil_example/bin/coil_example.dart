@@ -7,6 +7,7 @@ final fullname = Coil((Ref ref) => '${ref.get(firstname)} ${ref.get(lastname)}',
 final result = Coil((Ref ref) => '${ref.get(fullname)} (${ref.get(age)})', debugName: 'result');
 
 final delayed = FutureCoil((_) => Future.delayed(Duration(seconds: 1), () => 1), debugName: 'delayed');
+final unDelayed = FutureCoil((_) => 1, debugName: 'unDelayed');
 
 void main() {
   final Scope scope = Scope();
@@ -32,6 +33,8 @@ void main() {
   scope.listen(delayed, (previous, next) {
     log(('delayed-listener', previous, next));
   });
+
+  log(scope.get(unDelayed));
 }
 
 void log<T>(T object) => print(object.toString());

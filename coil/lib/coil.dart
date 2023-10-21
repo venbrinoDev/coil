@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:meta/meta.dart';
 
 typedef VoidCallback = void Function();
@@ -192,13 +194,18 @@ class MutableCoil<T> extends ValueCoil<T> with ListenableCoil<T> {
 
 @optionalTypeArgs
 class FutureCoil<T> extends Coil<AsyncValue<T>> with ListenableCoil<AsyncValue<T>> {
-  FutureCoil(CoilFactory<Future<T>> factory, {super.debugName})
+  FutureCoil(CoilFactory<FutureOr<T>> factory, {super.debugName})
       : super._(
           (Ref ref) {
-            factory(ref).then(
-              (value) => (ref as Scope)._owner?.state = AsyncSuccessValue<T>(value),
-            );
-            return AsyncLoadingValue<T>();
+            switch (factory(ref)) {
+              case T value:
+                return AsyncSuccessValue<T>(value);
+              case Future<T> future:
+                future.then(
+                  (value) => (ref as Scope)._owner?.state = AsyncSuccessValue<T>(value),
+                );
+                return AsyncLoadingValue<T>();
+            }
           },
         );
 
