@@ -12,7 +12,7 @@ abstract class Ref {
 
   void mutate<T>(MutableCoil<T> coil, CoilMutation<T> updater);
 
-  CoilSubscription<T> listen<T>(MutableCoil<T> coil, CoilListener<T> listener);
+  CoilSubscription<T> listen<T>(ListenableCoil<T> coil, CoilListener<T> listener);
 
   void invalidate<T>(Coil<T> coil);
 }
@@ -39,6 +39,8 @@ sealed class Coil<T> {
   String toString() => 'Coil($debugName)[$hashCode]';
 }
 
+mixin ListenableCoil<T> on Coil<T> {}
+
 class Scope implements Ref {
   Scope()
       : _owner = null,
@@ -61,7 +63,7 @@ class Scope implements Ref {
   }
 
   @override
-  CoilSubscription<T> listen<T>(MutableCoil<T> coil, CoilListener<T> listener) {
+  CoilSubscription<T> listen<T>(ListenableCoil<T> coil, CoilListener<T> listener) {
     final element = _resolve(coil);
     final dispose = element._addListener(listener);
 
@@ -182,21 +184,36 @@ class ValueCoil<T> extends Coil<T> {
 }
 
 @optionalTypeArgs
-class MutableCoil<T> extends ValueCoil<T> {
+class MutableCoil<T> extends ValueCoil<T> with ListenableCoil<T> {
   MutableCoil(super.factory, {super.debugName});
 
   late final state = _StateCoil(this, debugName: '${debugName}State');
 }
 
 @optionalTypeArgs
+class FutureCoil<T> extends Coil<AsyncValue<T>> with ListenableCoil<AsyncValue<T>> {
+  FutureCoil(CoilFactory<Future<T>> factory, {super.debugName})
+      : super._(
+          (Ref ref) {
+            factory(ref).then(
+              (value) => (ref as Scope)._owner?.state = AsyncSuccessValue<T>(value),
+            );
+            return AsyncLoadingValue<T>();
+          },
+        );
+
+  @override
+  CoilElement<AsyncValue<T>> createElement() => CoilElement<AsyncValue<T>>();
+}
+
+@optionalTypeArgs
 class _StateCoil<T> extends Coil<_CoilState<T>> {
-  _StateCoil(MutableCoil<T> parent, {String? debugName})
+  _StateCoil(MutableCoil<T> parent, {super.debugName})
       : super._(
           (Ref ref) => _CoilState(
             () => (ref as Scope)._resolve(parent).state,
             (value) => (ref as Scope)._resolve(parent).state = value,
           ),
-          debugName: debugName,
         );
 
   @override
@@ -228,4 +245,38 @@ class _CoilState<T> {
 
   @override
   String toString() => 'CoilState($_value)';
+}
+
+sealed class AsyncValue<T> {
+  const AsyncValue();
+}
+
+class AsyncLoadingValue<T> implements AsyncValue<T> {
+  const AsyncLoadingValue();
+
+  @override
+  String toString() => 'AsyncLoadingValue<$T>()';
+}
+
+class AsyncSuccessValue<T> implements AsyncValue<T> {
+  const AsyncSuccessValue(this.value);
+
+  final T value;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is AsyncSuccessValue && runtimeType == other.runtimeType && value == other.value;
+
+  @override
+  int get hashCode => value.hashCode;
+
+  @override
+  String toString() => 'AsyncSuccessValue<$T>($value)';
+}
+
+class AsyncFailureValue<T> implements AsyncValue<T> {
+  const AsyncFailureValue();
+
+  @override
+  String toString() => 'AsyncFailureValue<$T>()';
 }

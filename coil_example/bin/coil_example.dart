@@ -6,16 +6,18 @@ final age = MutableCoil((_) => 0, debugName: 'age');
 final fullname = Coil((Ref ref) => '${ref.get(firstname)} ${ref.get(lastname)}', debugName: 'fullname');
 final result = Coil((Ref ref) => '${ref.get(fullname)} (${ref.get(age)})', debugName: 'result');
 
+final delayed = FutureCoil((_) => Future.delayed(Duration(seconds: 1), () => 1), debugName: 'delayed');
+
 void main() {
   final Scope scope = Scope();
 
   log(scope.get(result));
 
-  scope.listen(age, (int? previous, int next) {
+  scope.listen(age, (previous, next) {
     log(('age-listener', previous, next));
   });
 
-  scope.mutate(age, (int value) => value + 1);
+  scope.mutate(age, (value) => value + 1);
 
   log(scope.get(result));
 
@@ -27,7 +29,9 @@ void main() {
 
   log(scope.get(result));
 
-  scope.dispose();
+  scope.listen(delayed, (previous, next) {
+    log(('delayed-listener', previous, next));
+  });
 }
 
 void log<T>(T object) => print(object.toString());
