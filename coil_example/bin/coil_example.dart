@@ -9,16 +9,21 @@ final Coil<String> result = Coil((Ref ref) => '${ref.get(fullname)} (${ref.get(a
 void main() {
   final Scope scope = Scope();
 
-  print(scope.get(age).value);
-  print(scope.get(result));
+  log(scope.get(age));
+  log(scope.get(result));
 
   scope.listen(age, (int? previous, int next) {
-    print((previous, next));
+    log(('age-listener', previous, next));
   });
 
-  scope.get(age).value++;
-  scope.get(age).value++;
+  scope.mutate(age, (int value) => value + 1);
 
-  print(scope.get(age).value);
-  print(scope.get(result));
+  log(scope.get(age.state).value);
+
+  scope.get(age.state).value++;
+
+  log(scope.get(age));
+  log(scope.get(result));
 }
+
+void log<T>(T object) => print(object.toString());
