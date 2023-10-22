@@ -62,11 +62,11 @@ class Scope implements Ref {
   final Map<Coil, CoilElement> _elements;
 
   @override
-  T get<T>(Coil<T> coil) => _resolve(coil).state;
+  T get<T>(Coil<T> coil, {bool listen = true}) => _resolve(coil, listen: listen).state;
 
   @override
   void mutate<T>(MutableCoil<T> coil, CoilMutation<T> updater) {
-    final state = get(coil.state);
+    final state = get(coil.state, listen: false);
     state.value = updater(state.value);
   }
 
@@ -74,7 +74,9 @@ class Scope implements Ref {
   CoilSubscription<T> listen<T>(ListenableCoil<T> coil, CoilListener<T> listener) {
     final element = _resolve(coil, mount: false);
     final dispose = element._addListener(listener);
-    _mount(element, coil);
+    if (element._state == null) {
+      _mount(element, coil);
+    }
 
     return (
       get: () => element.state,
@@ -100,7 +102,7 @@ class Scope implements Ref {
     }
   }
 
-  CoilElement<T> _resolve<T>(Coil<T> coil, {bool mount = true, bool listen = true}) {
+  CoilElement<T> _resolve<T>(Coil<T> coil, {bool mount = true, bool listen = false}) {
     switch (_elements[coil]) {
       case final CoilElement<T> element?:
         if (listen) {
@@ -289,7 +291,7 @@ final class AsyncCoil<T> extends Coil<Future<T>> {
   AsyncCoil(AsyncListenableCoil<T> parent, {super.debugName})
       : super._((Ref ref) {
           if ((ref as Scope)._owner case final element?) {
-            final parentElement = ref._resolve(parent, listen: false);
+            final parentElement = ref._resolve(parent);
 
             // Create relationship between host and parent elements
             ref._parent?._owner?._dependOn(parentElement);
