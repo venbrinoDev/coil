@@ -10,11 +10,18 @@ typedef CoilListener<T> = void Function(T? previous, T next);
 typedef CoilSubscription<T> = ({ValueCallback<T> get, VoidCallback dispose});
 
 abstract class Ref {
-  T get<T>(Coil<T> coil);
+  T get<T>(
+    Coil<T> coil, {
+    bool listen = true,
+  });
 
   void mutate<T>(MutableCoil<T> coil, CoilMutation<T> updater);
 
-  CoilSubscription<T> listen<T>(ListenableCoil<T> coil, CoilListener<T> listener);
+  CoilSubscription<T> listen<T>(
+    ListenableCoil<T> coil,
+    CoilListener<T> listener, {
+    bool fireImmediately = false,
+  });
 
   void invalidate<T>(Coil<T> coil);
 }
@@ -66,17 +73,22 @@ class Scope implements Ref {
 
   @override
   void mutate<T>(MutableCoil<T> coil, CoilMutation<T> updater) {
-    final state = get(coil.state, listen: false);
+    final state = _resolve(coil.state).state;
     state.value = updater(state.value);
   }
 
   @override
-  CoilSubscription<T> listen<T>(ListenableCoil<T> coil, CoilListener<T> listener) {
+  CoilSubscription<T> listen<T>(
+    ListenableCoil<T> coil,
+    CoilListener<T> listener, {
+    bool fireImmediately = false,
+  }) {
     final element = _resolve(coil, mount: false);
     final dispose = element._addListener(listener);
     if (element._state == null) {
       _mount(element, coil);
-    } else {
+    }
+    if (fireImmediately) {
       listener(null, element.state);
     }
 
@@ -186,7 +198,7 @@ class CoilElement<T> {
     _subscriptions.clear();
     _dependents.clear();
 
-    Future(() => _mount());
+    // Future(() => _mount()); // todo: prefer scheduler
   }
 
   VoidCallback _addListener(CoilListener<T> listener) {

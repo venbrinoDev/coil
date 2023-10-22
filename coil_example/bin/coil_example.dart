@@ -55,9 +55,13 @@ void main() async {
 
   log('await-delayed', await scope.get(delayed.future));
 
-  scope.listen(delayed, (previous, next) {
-    log('listen-delayed', (previous, next));
-  });
+  scope.listen(
+    delayed,
+    (previous, next) {
+      log('listen-delayed', (previous, next));
+    },
+    fireImmediately: true,
+  );
 
   log('un-delayed', scope.get(unDelayed));
 
