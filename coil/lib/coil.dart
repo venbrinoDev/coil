@@ -275,59 +275,59 @@ final class StreamCoil<T> extends _AsyncValueCoil<T, Stream<T>> {
 }
 
 @optionalTypeArgs
-final class StateCoil<T> extends Coil<_CoilState<T>> {
-  StateCoil(MutableCoil<T> parent, {super.debugName})
+final class _ProxyCoil<T, U> extends Coil<U> {
+  _ProxyCoil(Coil<T> parent, U Function(Scope, CoilElement<T>) factory, {super.debugName})
       : super._((Ref ref) {
           final scope = (ref as Scope);
-          final parentElement = ref._resolve(parent);
+          final parentElement = scope._resolve(parent);
 
           // Create relationship between host and parent elements
-          ref._parent?._owner?._dependOn(parentElement);
+          scope._parent?._owner?._dependOn(parentElement);
 
+          return factory(scope, parentElement);
+        });
+}
+
+@optionalTypeArgs
+final class StateCoil<T> extends _ProxyCoil<T, _CoilState<T>> {
+  StateCoil(MutableCoil<T> parent, {super.debugName})
+      : super(parent, (scope, parentElement) {
           return _CoilState(
             () => parentElement.state,
             (value) {
-              if (scope._owner case final element?) {
-                parentElement.state = value;
-                ref._unmount(element);
-              }
+              parentElement.state = value;
+              scope._unmount(scope._owner!);
             },
           );
         });
 }
 
 @optionalTypeArgs
-final class AsyncCoil<T> extends Coil<Future<T>> {
+final class AsyncCoil<T> extends _ProxyCoil<AsyncValue<T>, Future<T>> {
   AsyncCoil(AsyncListenableCoil<T> parent, {super.debugName})
-      : super._((Ref ref) {
-          if ((ref as Scope)._owner case final element?) {
-            final parentElement = ref._resolve(parent);
+      : super(parent, (scope, parentElement) {
+          final element = scope._owner!;
 
-            // Create relationship between host and parent elements
-            ref._parent?._owner?._dependOn(parentElement);
-
-            if (parentElement.state case AsyncSuccess<T>(:final value)) {
-              return Future.value(value);
-            }
-
-            final completer = Completer<T>();
-
-            element._addSubscription(
-              parentElement._addListener((_, next) {
-                switch (next) {
-                  case AsyncLoading<T>() || AsyncFailure<T>():
-                    break;
-                  case AsyncSuccess<T>(:final value):
-                    completer.complete(value);
-                    ref._unmount(element);
-                }
-              }),
-            );
-
-            return completer.future;
+          if (parentElement.state case AsyncSuccess<T>(:final value)) {
+            scope._unmount(element);
+            return Future.value(value);
           }
 
-          return Completer<T>().future;
+          final completer = Completer<T>();
+
+          element._addSubscription(
+            parentElement._addListener((_, next) {
+              switch (next) {
+                case AsyncLoading<T>() || AsyncFailure<T>():
+                  break;
+                case AsyncSuccess<T>(:final value):
+                  completer.complete(value);
+                  scope._unmount(element);
+              }
+            }),
+          );
+
+          return completer.future;
         });
 }
 

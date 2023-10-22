@@ -24,6 +24,9 @@ final doubleStream = StreamCoil(
 );
 final cubicStream = StreamCoil(
   (ref) async* {
+    ref.listen(stream, (previous, next) {
+      log('inner', (previous, next));
+    });
     yield (await ref.get(stream.future)) * 3;
   },
   debugName: 'cubic-stream',
@@ -77,4 +80,6 @@ void main() async {
   log('await-cubic-stream', await scope.get(cubicStream.future));
 }
 
-void log<T>(String tag, T object) => print((tag, object).toString());
+void log<T>(String tag, T object) {
+  print((tag, object).toString());
+}
