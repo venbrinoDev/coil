@@ -279,9 +279,19 @@ final class StateCoil<T> extends Coil<_CoilState<T>> {
   StateCoil(MutableCoil<T> parent, {super.debugName})
       : super._((Ref ref) {
           final scope = (ref as Scope);
+          final parentElement = ref._resolve(parent);
+
+          // Create relationship between host and parent elements
+          ref._parent?._owner?._dependOn(parentElement);
+
           return _CoilState(
-            () => scope._resolve(parent).state,
-            (value) => scope._resolve(parent).state = value,
+            () => parentElement.state,
+            (value) {
+              if (scope._owner case final element?) {
+                parentElement.state = value;
+                ref._unmount(element);
+              }
+            },
           );
         });
 }
