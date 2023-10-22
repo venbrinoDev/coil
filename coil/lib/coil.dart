@@ -47,13 +47,18 @@ base mixin AsyncListenableCoil<T> implements ListenableCoil<AsyncValue<T>> {}
 class Scope implements Ref {
   Scope()
       : _owner = null,
+        _parent = null,
         _elements = {};
 
-  Scope._({required CoilElement owner, required Map<Coil, CoilElement> bucket})
-      : _owner = owner,
-        _elements = bucket;
+  Scope._({
+    required CoilElement owner,
+    required Scope parent,
+  })  : _owner = owner,
+        _parent = parent,
+        _elements = parent._elements;
 
   final CoilElement? _owner;
+  final Scope? _parent;
   final Map<Coil, CoilElement> _elements;
 
   @override
@@ -69,7 +74,7 @@ class Scope implements Ref {
   CoilSubscription<T> listen<T>(ListenableCoil<T> coil, CoilListener<T> listener) {
     final element = _resolve(coil, mount: false);
     final dispose = element._addListener(listener);
-    _mount(element);
+    _mount(element, coil);
 
     return (
       get: () => element.state,
@@ -86,35 +91,49 @@ class Scope implements Ref {
   }
 
   void dispose() {
-    _owner?._invalidate();
-    if (_owner == null) {
+    if (_owner case final owner?) {
+      _unmount(owner);
+    } else {
       _elements
-        ..forEach((_, element) => element.dispose())
+        ..values.forEach(_unmount)
         ..clear();
     }
   }
 
-  CoilElement<T> _resolve<T>(Coil<T> coil, {bool mount = true}) {
+  CoilElement<T> _resolve<T>(Coil<T> coil, {bool mount = true, bool listen = true}) {
     switch (_elements[coil]) {
       case final CoilElement<T> element?:
-        _owner?._dependOn(element);
+        if (listen) {
+          _owner?._dependOn(element);
+        }
         return element;
       case _:
-        final CoilElement<T> element = coil.createElement().._coil = coil;
-        _elements[coil] = element;
-        _owner?._dependOn(element);
-        if (mount) {
-          _mount(element);
+        final CoilElement<T> element = coil.createElement();
+        if (listen) {
+          _owner?._dependOn(element);
         }
+        if (mount) {
+          _mount(element, coil);
+        }
+
         return element;
     }
   }
 
-  void _mount(CoilElement element) => element
-    .._scope ??= _clone(element)
-    .._mount();
+  void _mount<T>(CoilElement element, Coil<T> coil) {
+    _elements[coil] = element;
+    element
+      .._coil = coil
+      .._scope ??= Scope._(owner: element, parent: this)
+      .._mount();
+  }
 
-  Scope _clone(CoilElement owner) => Scope._(owner: owner, bucket: _elements);
+  void _unmount(CoilElement element) {
+    if (element._coil case final coil?) {
+      _elements.remove(coil);
+      element.dispose();
+    }
+  }
 }
 
 @optionalTypeArgs
@@ -176,7 +195,7 @@ class CoilElement<T> {
   void _dependOn(CoilElement element) => element._dependents.add(this);
 
   void _notifyListeners(T? oldState) {
-    for (final listener in _listeners) {
+    for (final listener in _listeners.toList(growable: false)) {
       listener(oldState, state);
     }
   }
@@ -269,24 +288,35 @@ final class StateCoil<T> extends Coil<_CoilState<T>> {
 final class AsyncCoil<T> extends Coil<Future<T>> {
   AsyncCoil(AsyncListenableCoil<T> parent, {super.debugName})
       : super._((Ref ref) {
-          final completer = Completer<T>();
           if ((ref as Scope)._owner case final element?) {
-            _resolve(completer, ref.get(parent));
-            element
-              .._invalidateSubscriptions()
-              .._addSubscription(
-                ref._resolve(parent)._addListener((_, next) => _resolve(completer, next)),
-              );
-          }
-          return completer.future;
-        });
+            final parentElement = ref._resolve(parent, listen: false);
 
-  static void _resolve<T>(Completer<T> completer, AsyncValue<T> state) {
-    return switch (state) {
-      AsyncLoading<T>() || AsyncFailure<T>() => null,
-      AsyncSuccess<T>(:final value) => completer.complete(value),
-    };
-  }
+            // Create relationship between host and parent elements
+            ref._parent?._owner?._dependOn(parentElement);
+
+            if (parentElement.state case AsyncSuccess<T>(:final value)) {
+              return Future.value(value);
+            }
+
+            final completer = Completer<T>();
+
+            element._addSubscription(
+              parentElement._addListener((_, next) {
+                switch (next) {
+                  case AsyncLoading<T>() || AsyncFailure<T>():
+                    break;
+                  case AsyncSuccess<T>(:final value):
+                    completer.complete(value);
+                    ref._unmount(element);
+                }
+              }),
+            );
+
+            return completer.future;
+          }
+
+          return Completer<T>().future;
+        });
 }
 
 class _CoilState<T> {

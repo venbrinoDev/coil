@@ -71,6 +71,10 @@ void main() async {
   });
 
   log('await-cubic-stream', await scope.get(cubicStream.future));
+
+  scope.invalidate(stream);
+
+  log('await-cubic-stream', await scope.get(cubicStream.future));
 }
 
 void log<T>(String tag, T object) => print((tag, object).toString());
