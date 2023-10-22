@@ -76,6 +76,8 @@ class Scope implements Ref {
     final dispose = element._addListener(listener);
     if (element._state == null) {
       _mount(element, coil);
+    } else {
+      listener(null, element.state);
     }
 
     return (
@@ -275,7 +277,7 @@ final class StreamCoil<T> extends _AsyncValueCoil<T, Stream<T>> {
 }
 
 @optionalTypeArgs
-final class _ProxyCoil<T, U> extends Coil<U> {
+base class _ProxyCoil<T, U> extends Coil<U> {
   _ProxyCoil(Coil<T> parent, U Function(Scope, CoilElement<T>) factory, {super.debugName})
       : super._((Ref ref) {
           final scope = (ref as Scope);
@@ -306,26 +308,25 @@ final class StateCoil<T> extends _ProxyCoil<T, _CoilState<T>> {
 final class AsyncCoil<T> extends _ProxyCoil<AsyncValue<T>, Future<T>> {
   AsyncCoil(AsyncListenableCoil<T> parent, {super.debugName})
       : super(parent, (scope, parentElement) {
-          final element = scope._owner!;
-
-          if (parentElement.state case AsyncSuccess<T>(:final value)) {
-            scope._unmount(element);
-            return Future.value(value);
-          }
-
           final completer = Completer<T>();
 
-          element._addSubscription(
-            parentElement._addListener((_, next) {
-              switch (next) {
-                case AsyncLoading<T>() || AsyncFailure<T>():
-                  break;
-                case AsyncSuccess<T>(:final value):
-                  completer.complete(value);
-                  scope._unmount(element);
-              }
-            }),
-          );
+          void resolve(T value) {
+            completer.complete(value);
+            scope._unmount(scope._owner!);
+          }
+
+          if (parentElement.state case AsyncSuccess<T>(:final value)) {
+            resolve(value);
+          } else {
+            scope._owner?._addSubscription(
+              parentElement._addListener(
+                (_, next) => switch (next) {
+                  AsyncLoading<T>() || AsyncFailure<T>() => null,
+                  AsyncSuccess<T>(:final value) => resolve(value),
+                },
+              ),
+            );
+          }
 
           return completer.future;
         });
