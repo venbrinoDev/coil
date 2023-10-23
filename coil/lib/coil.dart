@@ -87,7 +87,7 @@ class Scope implements Ref {
   }) {
     final element = _resolve(coil, mount: false);
     final dispose = element._addListener(listener);
-    if (element._state == null) {
+    if (!element.mounted) {
       _mount(element, coil);
     }
     if (fireImmediately) {
@@ -101,12 +101,7 @@ class Scope implements Ref {
   }
 
   @override
-  void invalidate<T>(Coil<T> coil) {
-    if (_elements[coil] case final element?) {
-      _elements.remove(coil);
-      element._invalidate();
-    }
-  }
+  void invalidate<T>(Coil<T> coil) => _elements[coil]?._invalidate();
 
   void dispose() {
     if (_owner case final owner?) {
@@ -123,6 +118,9 @@ class Scope implements Ref {
       case final CoilElement<T> element?:
         if (listen) {
           _owner?._dependOn(element);
+        }
+        if (!element.mounted) {
+          _mount(element, coil);
         }
         return element;
       case _:
@@ -175,6 +173,8 @@ class CoilElement<T> {
     }
   }
 
+  bool get mounted => _state != null;
+
   void dispose() {
     _state = null;
     _coil = null;
@@ -192,13 +192,14 @@ class CoilElement<T> {
   }
 
   void _invalidate() {
-    if (_listeners.isEmpty && _dependents.isEmpty) {
-      _scope?._elements.remove(_coil);
-    }
+    _state = null;
     _invalidateSubscriptions();
     _invalidateDependents();
     _subscriptions.clear();
     _dependents.clear();
+    if (_listeners.isEmpty && _dependents.isEmpty) {
+      _scope?._elements.remove(_coil);
+    }
 
     // Future(() => _mount()); // todo: prefer scheduler
   }
