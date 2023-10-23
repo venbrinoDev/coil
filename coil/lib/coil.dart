@@ -28,13 +28,15 @@ abstract class Ref {
 
 @optionalTypeArgs
 base class Coil<T> {
-  Coil._(this._factory, {this.debugName});
+  Coil._(this.factory, {this.debugName});
 
   factory Coil(CoilFactory<T> factory, {String? debugName}) = ValueCoil;
 
-  final String? debugName;
+  @internal
+  final CoilFactory<T> factory;
 
-  final CoilFactory<T> _factory;
+  @internal
+  final String? debugName;
 
   CoilElement<T> createElement() => CoilElement<T>();
 
@@ -185,7 +187,7 @@ class CoilElement<T> {
 
   void _mount() {
     if (_scope case final scope?) {
-      _state = _coil?._factory(scope);
+      _state = _coil?.factory(scope);
     }
   }
 
