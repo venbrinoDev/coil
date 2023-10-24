@@ -3,6 +3,7 @@ import 'package:coil/coil.dart';
 final firstname = Coil((_) => 'First', debugName: 'firstname');
 final lastname = Coil((_) => 'Last', debugName: 'lastname');
 final age = MutableCoil((_) => 0, debugName: 'age');
+final doubleAge = Coil((ref) => ref.get(age.state).value * 2, debugName: 'double-age');
 final fullname = Coil((ref) => '${ref.get(firstname)} ${ref.get(lastname)}', debugName: 'fullname');
 final result = Coil((ref) => '${ref.get(fullname)} (${ref.get(age)})', debugName: 'result');
 
@@ -33,12 +34,16 @@ final cubicStream = StreamCoil(
 );
 
 void main() async {
-  final Scope scope = Scope();
+  final scope = Scope();
 
   log('result', scope.get(result));
 
   scope.listen(age, (previous, next) {
     log('listen-age', (previous, next));
+  });
+
+  scope.listen(doubleAge, (previous, next) {
+    log('listen-double-age', (previous, next));
   });
 
   scope.mutate(age, (value) => value + 1);
@@ -52,6 +57,8 @@ void main() async {
   scope.get(age.state).value++;
 
   log('result', scope.get(result));
+
+  log('double-age', scope.get(doubleAge));
 
   log('await-delayed', await scope.get(delayed.future));
 

@@ -38,7 +38,7 @@ base class Coil<T> {
   @internal
   final String? debugName;
 
-  CoilElement<T> createElement() => CoilElement<T>();
+  CoilElement<T> createElement() => CoilElement<T>(this);
 
   @override
   bool operator ==(Object other) => identical(this, other) || other is Coil && runtimeType == other.runtimeType;
@@ -81,14 +81,14 @@ class Scope implements Ref {
 
   @override
   CoilSubscription<T> listen<T>(
-    ListenableCoil<T> coil,
+    Coil<T> coil,
     CoilListener<T> listener, {
     bool fireImmediately = false,
   }) {
     final element = _resolve(coil, mount: false);
     final dispose = element._addListener(listener);
     if (!element.mounted) {
-      _mount(element, coil);
+      _mount(element);
     }
     if (fireImmediately) {
       listener(null, element.state);
@@ -120,7 +120,7 @@ class Scope implements Ref {
           _owner?._dependOn(element);
         }
         if (!element.mounted) {
-          _mount(element, coil);
+          _mount(element);
         }
         return element;
       case _:
@@ -129,55 +129,56 @@ class Scope implements Ref {
           _owner?._dependOn(element);
         }
         if (mount) {
-          _mount(element, coil);
+          _mount(element);
         }
 
         return element;
     }
   }
 
-  void _mount<T>(CoilElement element, Coil<T> coil) {
-    _elements[coil] = element;
+  void _mount<T>(CoilElement element) {
+    _elements[element._coil] = element;
     element
-      .._coil = coil
       .._scope ??= Scope._(owner: element, parent: this)
       .._mount();
   }
 
   void _unmount(CoilElement element) {
-    if (element._coil case final coil?) {
-      _elements.remove(coil);
-      element.dispose();
-    }
+    _elements.remove(element._coil);
+    element.dispose();
   }
 }
 
 @optionalTypeArgs
 class CoilElement<T> {
-  Scope? _scope;
-  Coil<T>? _coil;
+  CoilElement(this._coil);
 
+  final Coil<T> _coil;
   final Set<CoilListener<T>> _listeners = {};
   final Set<CoilElement> _dependents = {};
   final Set<VoidCallback> _subscriptions = {};
+
+  Scope? _scope;
+  T? _oldState;
 
   T get state => _state!;
   T? _state;
 
   set state(T value) {
     if (_state != value) {
-      final oldState = _state;
+      final oldState = _oldState ?? _state;
       _state = value;
       _notifyListeners(oldState);
       _invalidateDependents();
+      _oldState = null;
     }
   }
 
   bool get mounted => _state != null;
 
   void dispose() {
+    _oldState = null;
     _state = null;
-    _coil = null;
     _scope = null;
     _invalidateSubscriptions();
     _subscriptions.clear();
@@ -187,21 +188,26 @@ class CoilElement<T> {
 
   void _mount() {
     if (_scope case final scope?) {
-      _state = _coil?.factory(scope);
+      state = _coil.factory(scope);
     }
   }
 
   void _invalidate() {
-    _state = null;
-    _invalidateSubscriptions();
-    _invalidateDependents();
-    _subscriptions.clear();
-    _dependents.clear();
-    if (_listeners.isEmpty && _dependents.isEmpty) {
-      _scope?._elements.remove(_coil);
+    if (!mounted) {
+      return;
     }
 
-    // Future(() => _mount()); // todo: prefer scheduler
+    _oldState = _state;
+    _state = null;
+    _invalidateDependents();
+    _invalidateSubscriptions();
+    _subscriptions.clear();
+
+    if (_listeners.isNotEmpty && !mounted) {
+      _mount(); //todo: maybe scheduler?
+    } else if (_listeners.isEmpty && _dependents.isEmpty) {
+      _scope?._unmount(this);
+    }
   }
 
   VoidCallback _addListener(CoilListener<T> listener) {
@@ -233,7 +239,7 @@ class CoilElement<T> {
 
   @override
   String toString() {
-    if (_coil?.debugName case final debugName?) {
+    if (_coil.debugName case final debugName?) {
       return 'CoilElement($debugName)';
     }
 
