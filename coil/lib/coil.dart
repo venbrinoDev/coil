@@ -254,6 +254,13 @@ base class _AsyncValueCoil<T, U> extends Coil<AsyncValue<T>> with AsyncListenabl
   _AsyncValueCoil(super.factory, {super.debugName}) : super._();
 
   late final future = AsyncCoil(this, debugName: '$debugName-future');
+
+  static AsyncLoading<T> _enrichLoadingState<T>(CoilElement? element) {
+    return switch (element?._state) {
+      AsyncSuccess<T>(:final T value) || AsyncLoading<T>(:final T value) => AsyncLoading<T>(value),
+      _ => AsyncLoading<T>()
+    };
+  }
 }
 
 @optionalTypeArgs
@@ -264,14 +271,20 @@ final class FutureCoil<T> extends _AsyncValueCoil<T, FutureOr<T>> {
             case T value:
               return AsyncSuccess<T>(value);
             case Future<T> future:
-              if ((ref as Scope)._owner case final element?) {
-                future.then((value) {
-                  element.state = AsyncSuccess<T>(value);
-                }).catchError((Object error, StackTrace stackTrace) {
-                  element.state = AsyncFailure<T>(error, stackTrace);
-                });
+              final element = (ref as Scope)._owner;
+              if (element != null) {
+                element
+                  .._invalidateSubscriptions()
+                  .._addSubscription(
+                    future.then((value) {
+                      element.state = AsyncSuccess<T>(value);
+                    }).catchError((Object error, StackTrace stackTrace) {
+                      element.state = AsyncFailure<T>(error, stackTrace);
+                    }).ignore,
+                  );
               }
-              return AsyncLoading<T>();
+
+              return _AsyncValueCoil._enrichLoadingState<T>(element);
           }
         });
 }
@@ -282,21 +295,18 @@ final class StreamCoil<T> extends _AsyncValueCoil<T, Stream<T>> {
       : super((Ref ref) {
           final element = (ref as Scope)._owner;
           if (element != null) {
-            element._invalidateSubscriptions();
-            final sub = factory(ref).listen((value) {
-              element.state = AsyncSuccess<T>(value);
-            }, onError: (Object error, StackTrace stackTrace) {
-              element.state = AsyncFailure(error, stackTrace);
-            });
-            element._addSubscription(() => sub.cancel());
+            element
+              .._invalidateSubscriptions()
+              .._addSubscription(
+                factory(ref).listen((value) {
+                  element.state = AsyncSuccess<T>(value);
+                }, onError: (Object error, StackTrace stackTrace) {
+                  element.state = AsyncFailure(error, stackTrace);
+                }).cancel,
+              );
           }
 
-          switch (element?._state) {
-            case AsyncSuccess<T>(:final T value) || AsyncLoading<T>(:final T value):
-              return AsyncLoading<T>(value);
-            case _:
-              return AsyncLoading<T>();
-          }
+          return _AsyncValueCoil._enrichLoadingState<T>(element);
         });
 }
 
@@ -339,17 +349,25 @@ final class AsyncCoil<T> extends _ProxyCoil<AsyncValue<T>, Future<T>> {
             scope._unmount(scope._owner!);
           }
 
+          void resolveError(Object error, StackTrace stackTrace) {
+            completer.completeError(error, stackTrace);
+            scope._unmount(scope._owner!);
+          }
+
           if (parentElement.state case AsyncSuccess<T>(:final value)) {
             resolve(value);
           } else {
-            scope._owner?._addSubscription(
-              parentElement._addListener(
-                (_, next) => switch (next) {
-                  AsyncLoading<T>() || AsyncFailure<T>() => null,
-                  AsyncSuccess<T>(:final value) => resolve(value),
-                },
-              ),
-            );
+            scope._owner
+              ?.._invalidateSubscriptions()
+              .._addSubscription(
+                parentElement._addListener(
+                  (_, next) => switch (next) {
+                    AsyncLoading<T>() => null,
+                    AsyncFailure<T>(:final error, :final stackTrace) => resolveError(error, stackTrace),
+                    AsyncSuccess<T>(:final value) => resolve(value),
+                  },
+                ),
+              );
           }
 
           return completer.future;
