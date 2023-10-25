@@ -159,25 +159,22 @@ class CoilElement<T> {
   final Set<VoidCallback> _subscriptions = {};
 
   Scope? _scope;
-  T? _oldState;
 
   T get state => _state!;
   T? _state;
 
   set state(T value) {
     if (_state != value) {
-      final oldState = _oldState ?? _state;
+      final oldState = _state;
       _state = value;
       _notifyListeners(oldState);
       _invalidateDependents();
-      _oldState = null;
     }
   }
 
   bool get mounted => _state != null;
 
   void dispose() {
-    _oldState = null;
     _state = null;
     _scope = null;
     _invalidateSubscriptions();
@@ -213,7 +210,7 @@ class CoilElement<T> {
   void _dependOn(CoilElement element) => element._dependents.add(this);
 
   void _notifyListeners(T? oldState) {
-    for (final listener in _listeners.toList(growable: false)) {
+    for (final listener in [..._listeners]) {
       listener(oldState, state);
     }
   }
@@ -283,7 +280,8 @@ final class FutureCoil<T> extends _AsyncValueCoil<T, FutureOr<T>> {
 final class StreamCoil<T> extends _AsyncValueCoil<T, Stream<T>> {
   StreamCoil(CoilFactory<Stream<T>> factory, {super.debugName})
       : super((Ref ref) {
-          if ((ref as Scope)._owner case final element?) {
+          final element = (ref as Scope)._owner;
+          if (element != null) {
             element._invalidateSubscriptions();
             final sub = factory(ref).listen((value) {
               element.state = AsyncSuccess<T>(value);
@@ -292,7 +290,13 @@ final class StreamCoil<T> extends _AsyncValueCoil<T, Stream<T>> {
             });
             element._addSubscription(() => sub.cancel());
           }
-          return AsyncLoading<T>();
+
+          switch (element?._state) {
+            case AsyncSuccess<T>(:final T value) || AsyncLoading<T>(:final T value):
+              return AsyncLoading<T>(value);
+            case _:
+              return AsyncLoading<T>();
+          }
         });
 }
 

@@ -38,13 +38,13 @@ void main() async {
 
   log('result', scope.get(result));
 
-  // scope.listen(age, (previous, next) {
-  //   log('listen-age', (previous, next));
-  // });
-  //
-  // scope.listen(doubleAge, (previous, next) {
-  //   log('listen-double-age', (previous, next));
-  // });
+  scope.listen(age, (previous, next) {
+    log('listen-age', (previous, next));
+  });
+
+  scope.listen(doubleAge, (previous, next) {
+    log('listen-double-age', (previous, next));
+  });
 
   scope.mutate(age, (value) => value + 1);
 
