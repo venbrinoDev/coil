@@ -193,20 +193,13 @@ class CoilElement<T> {
   }
 
   void _invalidate() {
-    if (!mounted) {
-      return;
-    }
-
-    _oldState = _state;
-    _state = null;
-    _invalidateDependents();
     _invalidateSubscriptions();
     _subscriptions.clear();
 
-    if (_listeners.isNotEmpty && !mounted) {
-      _mount(); //todo: maybe scheduler?
-    } else if (_listeners.isEmpty && _dependents.isEmpty) {
+    if (_listeners.isEmpty && _dependents.isEmpty) {
       _scope?._unmount(this);
+    } else {
+      _mount(); //todo: maybe scheduler?
     }
   }
 
@@ -274,9 +267,13 @@ final class FutureCoil<T> extends _AsyncValueCoil<T, FutureOr<T>> {
             case T value:
               return AsyncSuccess<T>(value);
             case Future<T> future:
-              future.then(
-                (value) => (ref as Scope)._owner?.state = AsyncSuccess<T>(value),
-              );
+              if ((ref as Scope)._owner case final element?) {
+                future.then((value) {
+                  element.state = AsyncSuccess<T>(value);
+                }).catchError((Object error, StackTrace stackTrace) {
+                  element.state = AsyncFailure<T>(error, stackTrace);
+                });
+              }
               return AsyncLoading<T>();
           }
         });
@@ -288,9 +285,11 @@ final class StreamCoil<T> extends _AsyncValueCoil<T, Stream<T>> {
       : super((Ref ref) {
           if ((ref as Scope)._owner case final element?) {
             element._invalidateSubscriptions();
-            final sub = factory(ref).listen(
-              (value) => element.state = AsyncSuccess<T>(value),
-            );
+            final sub = factory(ref).listen((value) {
+              element.state = AsyncSuccess<T>(value);
+            }, onError: (Object error, StackTrace stackTrace) {
+              element.state = AsyncFailure(error, stackTrace);
+            });
             element._addSubscription(() => sub.cancel());
           }
           return AsyncLoading<T>();
@@ -359,25 +358,12 @@ class _CoilState<T> {
   final ValueCallback<T> _factory;
   final void Function(T value) _onUpdate;
 
-  T get value => _value;
-  late T _value = _factory();
+  T get value => _factory();
 
-  set value(T value) {
-    if (value != _value) {
-      _value = value;
-      _onUpdate(_value);
-    }
-  }
+  set value(T value) => _onUpdate(value);
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) || other is _CoilState && runtimeType == other.runtimeType && _value == other._value;
-
-  @override
-  int get hashCode => _value.hashCode;
-
-  @override
-  String toString() => 'CoilState($_value)';
+  String toString() => 'CoilState($value)';
 }
 
 sealed class AsyncValue<T> {
@@ -385,10 +371,19 @@ sealed class AsyncValue<T> {
 }
 
 class AsyncLoading<T> implements AsyncValue<T> {
-  const AsyncLoading();
+  const AsyncLoading([this.value]);
+
+  final T? value;
 
   @override
-  String toString() => 'AsyncLoading<$T>()';
+  bool operator ==(Object other) =>
+      identical(this, other) || other is AsyncLoading && runtimeType == other.runtimeType && value == other.value;
+
+  @override
+  int get hashCode => value.hashCode;
+
+  @override
+  String toString() => 'AsyncLoading<$T>${value != null ? '($value)' : ''}';
 }
 
 class AsyncSuccess<T> implements AsyncValue<T> {
@@ -408,8 +403,18 @@ class AsyncSuccess<T> implements AsyncValue<T> {
 }
 
 class AsyncFailure<T> implements AsyncValue<T> {
-  const AsyncFailure();
+  const AsyncFailure(this.error, this.stackTrace);
+
+  final Object error;
+  final StackTrace stackTrace;
 
   @override
-  String toString() => 'AsyncFailure<$T>()';
+  bool operator ==(Object other) =>
+      identical(this, other) || other is AsyncFailure && runtimeType == other.runtimeType && error == other.error;
+
+  @override
+  int get hashCode => error.hashCode;
+
+  @override
+  String toString() => 'AsyncFailure<$T>($error)';
 }

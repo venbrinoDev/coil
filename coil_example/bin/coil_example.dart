@@ -26,7 +26,7 @@ final doubleStream = StreamCoil(
 final cubicStream = StreamCoil(
   (ref) async* {
     ref.listen(stream, (previous, next) {
-      log('inner', (previous, next));
+      log('inner-stream', (previous, next));
     });
     yield (await ref.get(stream.future)) * 3;
   },
@@ -38,13 +38,13 @@ void main() async {
 
   log('result', scope.get(result));
 
-  scope.listen(age, (previous, next) {
-    log('listen-age', (previous, next));
-  });
-
-  scope.listen(doubleAge, (previous, next) {
-    log('listen-double-age', (previous, next));
-  });
+  // scope.listen(age, (previous, next) {
+  //   log('listen-age', (previous, next));
+  // });
+  //
+  // scope.listen(doubleAge, (previous, next) {
+  //   log('listen-double-age', (previous, next));
+  // });
 
   scope.mutate(age, (value) => value + 1);
 
@@ -54,7 +54,7 @@ void main() async {
 
   log('result', scope.get(result));
 
-  scope.get(age.state).value++;
+  scope.get(age.state).value += 2;
 
   log('result', scope.get(result));
 
