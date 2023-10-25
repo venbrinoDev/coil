@@ -15,8 +15,6 @@ abstract class Ref {
     bool listen = true,
   });
 
-  void mutate<T>(MutableCoil<T> coil, CoilMutation<T> updater);
-
   CoilSubscription<T> listen<T>(
     ListenableCoil<T> coil,
     CoilListener<T> listener, {
@@ -72,12 +70,6 @@ class Scope implements Ref {
 
   @override
   T get<T>(Coil<T> coil, {bool listen = true}) => _resolve(coil, listen: listen).state;
-
-  @override
-  void mutate<T>(MutableCoil<T> coil, CoilMutation<T> updater) {
-    final state = _resolve(coil.state).state;
-    state.value = updater(state.value);
-  }
 
   @override
   CoilSubscription<T> listen<T>(
@@ -253,7 +245,7 @@ final class MutableCoil<T> extends Coil<T> with ListenableCoil<T> {
 base class _AsyncValueCoil<T, U> extends Coil<AsyncValue<T>> with AsyncListenableCoil<T> {
   _AsyncValueCoil(super.factory, {super.debugName}) : super._();
 
-  late final future = AsyncCoil(this, debugName: '$debugName-future');
+  late final async = AsyncCoil(this, debugName: '$debugName-async');
 
   static AsyncLoading<T> _enrichLoadingState<T>(CoilElement? element) {
     return switch (element?._state) {
