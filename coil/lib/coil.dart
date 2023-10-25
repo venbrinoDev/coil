@@ -339,30 +339,45 @@ final class StreamCoil<T> extends AsyncValueCoil<T> {
   }
 }
 
+typedef _ProxyCoilRef<T> = ({
+  CoilElement<T> parent,
+  CoilElement element,
+  VoidCallback unmount,
+});
+typedef _ProxyCoilFactory<T, U> = U Function(_ProxyCoilRef<T> ref);
+
 @optionalTypeArgs
 base class _ProxyCoil<T, U> extends Coil<U> {
-  _ProxyCoil(Coil<T> parent, U Function(Scope, CoilElement<T>) factory, {super.debugName})
+  _ProxyCoil(Coil<T> parent, _ProxyCoilFactory<T, U> factory, {super.debugName})
       : super._((Ref ref) {
-          final scope = (ref as Scope);
-          final parentElement = scope._resolve(parent);
+          final element = (ref as Scope)._owner;
+          if (element == null) {
+            throw AssertionError('Failed to mount :(');
+          }
 
           // Create relationship between host and parent elements
-          scope._parent?._owner?._dependOn(parentElement);
+          final parentElement = ref._resolve(parent);
+          ref._parent?._owner?._dependOn(parentElement);
 
-          return factory(scope, parentElement);
+          return factory(
+            (
+              parent: parentElement,
+              element: element,
+              unmount: () => ref._unmount(element),
+            ),
+          );
         });
 }
 
 @optionalTypeArgs
 final class StateCoil<T> extends _ProxyCoil<T, _CoilState<T>> {
   StateCoil(MutableCoil<T> parent, {super.debugName})
-      : super(parent, (scope, parentElement) {
+      : super(parent, (ref) {
           return _CoilState(
-            () => parentElement.state,
-            (value) {
-              parentElement.state = value;
-              scope._unmount(scope._owner!);
-            },
+            () => ref.parent.state,
+            (value) => ref
+              ..parent.state = value
+              ..unmount(),
           );
         });
 }
@@ -370,26 +385,26 @@ final class StateCoil<T> extends _ProxyCoil<T, _CoilState<T>> {
 @optionalTypeArgs
 final class AsyncCoil<T> extends _ProxyCoil<AsyncValue<T>, Future<T>> {
   AsyncCoil(AsyncValueCoil<T> parent, {super.debugName})
-      : super(parent, (scope, parentElement) {
+      : super(parent, (ref) {
           final completer = Completer<T>();
 
           void resolve(T value) {
             completer.complete(value);
-            scope._unmount(scope._owner!);
+            ref.unmount();
           }
 
           void resolveError(Object error, StackTrace stackTrace) {
             completer.completeError(error, stackTrace);
-            scope._unmount(scope._owner!);
+            ref.unmount();
           }
 
-          if (parentElement.state case AsyncSuccess<T>(:final value)) {
+          if (ref.parent.state case AsyncSuccess<T>(:final value)) {
             resolve(value);
           } else {
-            scope._owner
-              ?.._invalidateSubscriptions()
+            ref.element
+              .._invalidateSubscriptions()
               .._addSubscription(
-                parentElement._addListener(
+                ref.parent._addListener(
                   (_, next) => switch (next) {
                     AsyncLoading<T>() => null,
                     AsyncFailure<T>(:final error, :final stackTrace) => resolveError(error, stackTrace),
