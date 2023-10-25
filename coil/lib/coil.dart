@@ -28,12 +28,14 @@ abstract class Ref {
 
 @optionalTypeArgs
 base class Coil<T> {
-  Coil._(this.factory, {this.key, this.debugName});
+  Coil(this.factory, {this.key, this.debugName});
 
-  factory Coil(CoilFactory<T> factory, {String? debugName}) = ValueCoil;
-
-  static CoilFamily<U, ValueCoil<T>> family<T, U>(CoilFamilyFactory<T, U> factory, {String? debugName}) =>
-      ValueCoil.family(factory, debugName: debugName);
+  static CoilFamily<U, Coil<T>> family<T, U>(
+    CoilFamilyFactory<T, U> factory, {
+    String? debugName,
+  }) {
+    return (U arg) => Coil((ref) => factory(ref, arg), key: arg, debugName: debugName);
+  }
 
   @internal
   final CoilFactory<T> factory;
@@ -55,6 +57,174 @@ base class Coil<T> {
 
   @override
   String toString() => 'Coil($debugName)[$hashCode]';
+}
+
+@optionalTypeArgs
+final class MutableCoil<T> extends Coil<T> {
+  MutableCoil(super.factory, {super.key, super.debugName});
+
+  static CoilFamily<U, MutableCoil<T>> family<T, U>(
+    CoilFamilyFactory<T, U> factory, {
+    String? debugName,
+  }) {
+    return (U arg) => MutableCoil((ref) => factory(ref, arg), key: arg, debugName: debugName);
+  }
+
+  late final state = StateCoil(this, debugName: '$debugName-state');
+}
+
+@optionalTypeArgs
+base class AsyncValueCoil<T> extends Coil<AsyncValue<T>> {
+  AsyncValueCoil(super.factory, {super.key, super.debugName});
+
+  late final async = AsyncCoil(this, debugName: '$debugName-async');
+
+  static AsyncLoading<T> _enrichLoadingState<T>(CoilElement? element) {
+    return switch (element?._state) {
+      AsyncSuccess<T>(:final T value) || AsyncLoading<T>(:final T value) => AsyncLoading<T>(value),
+      _ => AsyncLoading<T>()
+    };
+  }
+}
+
+@optionalTypeArgs
+final class FutureCoil<T> extends AsyncValueCoil<T> {
+  FutureCoil(CoilFactory<FutureOr<T>> factory, {super.key, super.debugName})
+      : super((Ref ref) {
+          switch (factory(ref)) {
+            case T value:
+              return AsyncSuccess<T>(value);
+            case Future<T> future:
+              final element = (ref as Scope)._owner;
+              if (element != null) {
+                element
+                  .._invalidateSubscriptions()
+                  .._addSubscription(
+                    future.then((value) {
+                      element.state = AsyncSuccess<T>(value);
+                    }).catchError((Object error, StackTrace stackTrace) {
+                      element.state = AsyncFailure<T>(error, stackTrace);
+                    }).ignore,
+                  );
+              }
+
+              return AsyncValueCoil._enrichLoadingState<T>(element);
+          }
+        });
+
+  static CoilFamily<U, FutureCoil<T>> family<T, U>(
+    CoilFamilyFactory<FutureOr<T>, U> factory, {
+    String? debugName,
+  }) {
+    return (U arg) => FutureCoil((ref) => factory(ref, arg), key: arg, debugName: debugName);
+  }
+}
+
+@optionalTypeArgs
+final class StreamCoil<T> extends AsyncValueCoil<T> {
+  StreamCoil(CoilFactory<Stream<T>> factory, {super.key, super.debugName})
+      : super((Ref ref) {
+          final element = (ref as Scope)._owner;
+          if (element != null) {
+            element
+              .._invalidateSubscriptions()
+              .._addSubscription(
+                factory(ref).listen((value) {
+                  element.state = AsyncSuccess<T>(value);
+                }, onError: (Object error, StackTrace stackTrace) {
+                  element.state = AsyncFailure(error, stackTrace);
+                }).cancel,
+              );
+          }
+
+          return AsyncValueCoil._enrichLoadingState<T>(element);
+        });
+
+  static CoilFamily<U, StreamCoil<T>> family<T, U>(
+    CoilFamilyFactory<Stream<T>, U> factory, {
+    String? debugName,
+  }) {
+    return (U arg) => StreamCoil((ref) => factory(ref, arg), key: arg, debugName: debugName);
+  }
+}
+
+typedef _ProxyCoilRef<T> = ({
+  CoilElement<T> parent,
+  CoilElement element,
+  VoidCallback unmount,
+});
+typedef _ProxyCoilFactory<T, U> = U Function(_ProxyCoilRef<T> ref);
+
+@optionalTypeArgs
+base class _ProxyCoil<T, U> extends Coil<U> {
+  _ProxyCoil(Coil<T> parent, _ProxyCoilFactory<T, U> factory, {super.debugName})
+      : super((Ref ref) {
+          final element = (ref as Scope)._owner;
+          if (element == null) {
+            throw AssertionError('Failed to mount :(');
+          }
+
+          // Create relationship between host and parent elements
+          final parentElement = ref._resolve(parent);
+          ref._parent?._owner?._dependOn(parentElement);
+
+          return factory(
+            (
+              parent: parentElement,
+              element: element,
+              unmount: () => ref._unmount(element),
+            ),
+          );
+        });
+}
+
+@optionalTypeArgs
+final class StateCoil<T> extends _ProxyCoil<T, _CoilState<T>> {
+  StateCoil(MutableCoil<T> parent, {super.debugName})
+      : super(parent, (ref) {
+          return _CoilState(
+            () => ref.parent.state,
+            (value) => ref
+              ..parent.state = value
+              ..unmount(),
+          );
+        });
+}
+
+@optionalTypeArgs
+final class AsyncCoil<T> extends _ProxyCoil<AsyncValue<T>, Future<T>> {
+  AsyncCoil(AsyncValueCoil<T> parent, {super.debugName})
+      : super(parent, (ref) {
+          final completer = Completer<T>();
+
+          void resolve(T value) {
+            completer.complete(value);
+            ref.unmount();
+          }
+
+          void resolveError(Object error, StackTrace stackTrace) {
+            completer.completeError(error, stackTrace);
+            ref.unmount();
+          }
+
+          if (ref.parent.state case AsyncSuccess<T>(:final value)) {
+            resolve(value);
+          } else {
+            ref.element
+              .._invalidateSubscriptions()
+              .._addSubscription(
+                ref.parent._addListener(
+                  (_, next) => switch (next) {
+                    AsyncLoading<T>() => null,
+                    AsyncFailure<T>(:final error, :final stackTrace) => resolveError(error, stackTrace),
+                    AsyncSuccess<T>(:final value) => resolve(value),
+                  },
+                ),
+              );
+          }
+
+          return completer.future;
+        });
 }
 
 class Scope implements Ref {
@@ -236,186 +406,6 @@ class CoilElement<T> {
 
     return runtimeType.toString();
   }
-}
-
-@optionalTypeArgs
-final class ValueCoil<T> extends Coil<T> {
-  ValueCoil(super.factory, {super.key, super.debugName}) : super._();
-
-  static CoilFamily<U, ValueCoil<T>> family<T, U>(
-    CoilFamilyFactory<T, U> factory, {
-    String? debugName,
-  }) {
-    return (U arg) => ValueCoil((ref) => factory(ref, arg), key: arg, debugName: debugName);
-  }
-}
-
-@optionalTypeArgs
-final class MutableCoil<T> extends Coil<T> {
-  MutableCoil(super.factory, {super.key, super.debugName}) : super._();
-
-  static CoilFamily<U, MutableCoil<T>> family<T, U>(
-    CoilFamilyFactory<T, U> factory, {
-    String? debugName,
-  }) {
-    return (U arg) => MutableCoil((ref) => factory(ref, arg), key: arg, debugName: debugName);
-  }
-
-  late final state = StateCoil(this, debugName: '$debugName-state');
-}
-
-@optionalTypeArgs
-base class AsyncValueCoil<T> extends Coil<AsyncValue<T>> {
-  AsyncValueCoil(super.factory, {super.key, super.debugName}) : super._();
-
-  late final async = AsyncCoil(this, debugName: '$debugName-async');
-
-  static AsyncLoading<T> _enrichLoadingState<T>(CoilElement? element) {
-    return switch (element?._state) {
-      AsyncSuccess<T>(:final T value) || AsyncLoading<T>(:final T value) => AsyncLoading<T>(value),
-      _ => AsyncLoading<T>()
-    };
-  }
-}
-
-@optionalTypeArgs
-final class FutureCoil<T> extends AsyncValueCoil<T> {
-  FutureCoil(CoilFactory<FutureOr<T>> factory, {super.key, super.debugName})
-      : super((Ref ref) {
-          switch (factory(ref)) {
-            case T value:
-              return AsyncSuccess<T>(value);
-            case Future<T> future:
-              final element = (ref as Scope)._owner;
-              if (element != null) {
-                element
-                  .._invalidateSubscriptions()
-                  .._addSubscription(
-                    future.then((value) {
-                      element.state = AsyncSuccess<T>(value);
-                    }).catchError((Object error, StackTrace stackTrace) {
-                      element.state = AsyncFailure<T>(error, stackTrace);
-                    }).ignore,
-                  );
-              }
-
-              return AsyncValueCoil._enrichLoadingState<T>(element);
-          }
-        });
-
-  static CoilFamily<U, FutureCoil<T>> family<T, U>(
-    CoilFamilyFactory<FutureOr<T>, U> factory, {
-    String? debugName,
-  }) {
-    return (U arg) => FutureCoil((ref) => factory(ref, arg), key: arg, debugName: debugName);
-  }
-}
-
-@optionalTypeArgs
-final class StreamCoil<T> extends AsyncValueCoil<T> {
-  StreamCoil(CoilFactory<Stream<T>> factory, {super.key, super.debugName})
-      : super((Ref ref) {
-          final element = (ref as Scope)._owner;
-          if (element != null) {
-            element
-              .._invalidateSubscriptions()
-              .._addSubscription(
-                factory(ref).listen((value) {
-                  element.state = AsyncSuccess<T>(value);
-                }, onError: (Object error, StackTrace stackTrace) {
-                  element.state = AsyncFailure(error, stackTrace);
-                }).cancel,
-              );
-          }
-
-          return AsyncValueCoil._enrichLoadingState<T>(element);
-        });
-
-  static CoilFamily<U, StreamCoil<T>> family<T, U>(
-    CoilFamilyFactory<Stream<T>, U> factory, {
-    String? debugName,
-  }) {
-    return (U arg) => StreamCoil((ref) => factory(ref, arg), key: arg, debugName: debugName);
-  }
-}
-
-typedef _ProxyCoilRef<T> = ({
-  CoilElement<T> parent,
-  CoilElement element,
-  VoidCallback unmount,
-});
-typedef _ProxyCoilFactory<T, U> = U Function(_ProxyCoilRef<T> ref);
-
-@optionalTypeArgs
-base class _ProxyCoil<T, U> extends Coil<U> {
-  _ProxyCoil(Coil<T> parent, _ProxyCoilFactory<T, U> factory, {super.debugName})
-      : super._((Ref ref) {
-          final element = (ref as Scope)._owner;
-          if (element == null) {
-            throw AssertionError('Failed to mount :(');
-          }
-
-          // Create relationship between host and parent elements
-          final parentElement = ref._resolve(parent);
-          ref._parent?._owner?._dependOn(parentElement);
-
-          return factory(
-            (
-              parent: parentElement,
-              element: element,
-              unmount: () => ref._unmount(element),
-            ),
-          );
-        });
-}
-
-@optionalTypeArgs
-final class StateCoil<T> extends _ProxyCoil<T, _CoilState<T>> {
-  StateCoil(MutableCoil<T> parent, {super.debugName})
-      : super(parent, (ref) {
-          return _CoilState(
-            () => ref.parent.state,
-            (value) => ref
-              ..parent.state = value
-              ..unmount(),
-          );
-        });
-}
-
-@optionalTypeArgs
-final class AsyncCoil<T> extends _ProxyCoil<AsyncValue<T>, Future<T>> {
-  AsyncCoil(AsyncValueCoil<T> parent, {super.debugName})
-      : super(parent, (ref) {
-          final completer = Completer<T>();
-
-          void resolve(T value) {
-            completer.complete(value);
-            ref.unmount();
-          }
-
-          void resolveError(Object error, StackTrace stackTrace) {
-            completer.completeError(error, stackTrace);
-            ref.unmount();
-          }
-
-          if (ref.parent.state case AsyncSuccess<T>(:final value)) {
-            resolve(value);
-          } else {
-            ref.element
-              .._invalidateSubscriptions()
-              .._addSubscription(
-                ref.parent._addListener(
-                  (_, next) => switch (next) {
-                    AsyncLoading<T>() => null,
-                    AsyncFailure<T>(:final error, :final stackTrace) => resolveError(error, stackTrace),
-                    AsyncSuccess<T>(:final value) => resolve(value),
-                  },
-                ),
-              );
-          }
-
-          return completer.future;
-        });
 }
 
 class _CoilState<T> {
