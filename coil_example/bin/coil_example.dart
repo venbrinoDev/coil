@@ -4,6 +4,9 @@ final firstname = Coil((_) => 'First', debugName: 'firstname');
 final lastname = Coil((_) => 'Last', debugName: 'lastname');
 final age = MutableCoil((_) => 0, debugName: 'age');
 
+final passThrough = MutableCoil.family((_, int value) => value, debugName: 'pass-through');
+final mutablePassThrough = MutableCoil.family((_, int value) => value, debugName: 'mutable-pass-through');
+
 final doubleAge = Coil((ref) => ref.get(age.state).value * 2, debugName: 'double-age');
 final fullname = Coil((ref) => '${ref.get(firstname)} ${ref.get(lastname)}', debugName: 'fullname');
 final result = Coil((ref) => '${ref.get(fullname)} (${ref.get(age)})', debugName: 'result');
@@ -59,6 +62,14 @@ void main() async {
   scope.get(age.state).value += 2;
 
   log('result', scope.get(result));
+
+  log('pass-through', scope.get(passThrough(1)));
+
+  log('mutable-pass-through', scope.get(passThrough(1)));
+
+  scope.get(passThrough(1).state).value++;
+
+  log('mutable-pass-through', scope.get(passThrough(1)));
 
   log('double-age', scope.get(doubleAge));
 

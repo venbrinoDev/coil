@@ -8,6 +8,8 @@ typedef CoilFactory<T> = T Function(Ref ref);
 typedef CoilMutation<T> = T Function(T value);
 typedef CoilListener<T> = void Function(T? previous, T next);
 typedef CoilSubscription<T> = ({ValueCallback<T> get, VoidCallback dispose});
+typedef CoilFamily<U, V extends Coil> = V Function(U arg);
+typedef CoilFamilyFactory<T, U> = T Function(Ref ref, U arg);
 
 abstract class Ref {
   T get<T>(
@@ -16,7 +18,7 @@ abstract class Ref {
   });
 
   CoilSubscription<T> listen<T>(
-    ListenableCoil<T> coil,
+    Coil<T> coil,
     CoilListener<T> listener, {
     bool fireImmediately = false,
   });
@@ -26,12 +28,18 @@ abstract class Ref {
 
 @optionalTypeArgs
 base class Coil<T> {
-  Coil._(this.factory, {this.debugName});
+  Coil._(this.factory, {this.key, this.debugName});
 
   factory Coil(CoilFactory<T> factory, {String? debugName}) = ValueCoil;
 
+  static CoilFamily<U, ValueCoil<T>> family<T, U>(CoilFamilyFactory<T, U> factory, {String? debugName}) =>
+      ValueCoil.family(factory, debugName: debugName);
+
   @internal
   final CoilFactory<T> factory;
+
+  @internal
+  final Object? key;
 
   @internal
   final String? debugName;
@@ -39,17 +47,15 @@ base class Coil<T> {
   CoilElement<T> createElement() => CoilElement<T>(this);
 
   @override
-  bool operator ==(Object other) => identical(this, other) || other is Coil && runtimeType == other.runtimeType;
+  bool operator ==(Object other) =>
+      identical(this, other) || other is Coil && runtimeType == other.runtimeType && key == other.key;
 
   @override
-  int get hashCode => identityHashCode(this);
+  int get hashCode => key?.hashCode ?? identityHashCode(this);
 
   @override
   String toString() => 'Coil($debugName)[$hashCode]';
 }
-
-base mixin ListenableCoil<T> on Coil<T> {}
-base mixin AsyncListenableCoil<T> implements ListenableCoil<AsyncValue<T>> {}
 
 class Scope implements Ref {
   Scope()
@@ -67,6 +73,9 @@ class Scope implements Ref {
   final CoilElement? _owner;
   final Scope? _parent;
   final Map<Coil, CoilElement> _elements;
+
+  @visibleForTesting
+  Map<Coil, CoilElement> get elements => _elements;
 
   @override
   T get<T>(Coil<T> coil, {bool listen = true}) => _resolve(coil, listen: listen).state;
@@ -231,19 +240,33 @@ class CoilElement<T> {
 
 @optionalTypeArgs
 final class ValueCoil<T> extends Coil<T> {
-  ValueCoil(super.factory, {super.debugName}) : super._();
+  ValueCoil(super.factory, {super.key, super.debugName}) : super._();
+
+  static CoilFamily<U, ValueCoil<T>> family<T, U>(
+    CoilFamilyFactory<T, U> factory, {
+    String? debugName,
+  }) {
+    return (U arg) => ValueCoil((ref) => factory(ref, arg), key: arg, debugName: debugName);
+  }
 }
 
 @optionalTypeArgs
-final class MutableCoil<T> extends Coil<T> with ListenableCoil<T> {
-  MutableCoil(super.factory, {super.debugName}) : super._();
+final class MutableCoil<T> extends Coil<T> {
+  MutableCoil(super.factory, {super.key, super.debugName}) : super._();
+
+  static CoilFamily<U, MutableCoil<T>> family<T, U>(
+    CoilFamilyFactory<T, U> factory, {
+    String? debugName,
+  }) {
+    return (U arg) => MutableCoil((ref) => factory(ref, arg), key: arg, debugName: debugName);
+  }
 
   late final state = StateCoil(this, debugName: '$debugName-state');
 }
 
 @optionalTypeArgs
-base class _AsyncValueCoil<T, U> extends Coil<AsyncValue<T>> with AsyncListenableCoil<T> {
-  _AsyncValueCoil(super.factory, {super.debugName}) : super._();
+base class AsyncValueCoil<T> extends Coil<AsyncValue<T>> {
+  AsyncValueCoil(super.factory, {super.key, super.debugName}) : super._();
 
   late final async = AsyncCoil(this, debugName: '$debugName-async');
 
@@ -256,8 +279,8 @@ base class _AsyncValueCoil<T, U> extends Coil<AsyncValue<T>> with AsyncListenabl
 }
 
 @optionalTypeArgs
-final class FutureCoil<T> extends _AsyncValueCoil<T, FutureOr<T>> {
-  FutureCoil(CoilFactory<FutureOr<T>> factory, {super.debugName})
+final class FutureCoil<T> extends AsyncValueCoil<T> {
+  FutureCoil(CoilFactory<FutureOr<T>> factory, {super.key, super.debugName})
       : super((Ref ref) {
           switch (factory(ref)) {
             case T value:
@@ -276,14 +299,21 @@ final class FutureCoil<T> extends _AsyncValueCoil<T, FutureOr<T>> {
                   );
               }
 
-              return _AsyncValueCoil._enrichLoadingState<T>(element);
+              return AsyncValueCoil._enrichLoadingState<T>(element);
           }
         });
+
+  static CoilFamily<U, FutureCoil<T>> family<T, U>(
+    CoilFamilyFactory<FutureOr<T>, U> factory, {
+    String? debugName,
+  }) {
+    return (U arg) => FutureCoil((ref) => factory(ref, arg), key: arg, debugName: debugName);
+  }
 }
 
 @optionalTypeArgs
-final class StreamCoil<T> extends _AsyncValueCoil<T, Stream<T>> {
-  StreamCoil(CoilFactory<Stream<T>> factory, {super.debugName})
+final class StreamCoil<T> extends AsyncValueCoil<T> {
+  StreamCoil(CoilFactory<Stream<T>> factory, {super.key, super.debugName})
       : super((Ref ref) {
           final element = (ref as Scope)._owner;
           if (element != null) {
@@ -298,8 +328,15 @@ final class StreamCoil<T> extends _AsyncValueCoil<T, Stream<T>> {
               );
           }
 
-          return _AsyncValueCoil._enrichLoadingState<T>(element);
+          return AsyncValueCoil._enrichLoadingState<T>(element);
         });
+
+  static CoilFamily<U, StreamCoil<T>> family<T, U>(
+    CoilFamilyFactory<Stream<T>, U> factory, {
+    String? debugName,
+  }) {
+    return (U arg) => StreamCoil((ref) => factory(ref, arg), key: arg, debugName: debugName);
+  }
 }
 
 @optionalTypeArgs
@@ -332,7 +369,7 @@ final class StateCoil<T> extends _ProxyCoil<T, _CoilState<T>> {
 
 @optionalTypeArgs
 final class AsyncCoil<T> extends _ProxyCoil<AsyncValue<T>, Future<T>> {
-  AsyncCoil(AsyncListenableCoil<T> parent, {super.debugName})
+  AsyncCoil(AsyncValueCoil<T> parent, {super.debugName})
       : super(parent, (scope, parentElement) {
           final completer = Completer<T>();
 
