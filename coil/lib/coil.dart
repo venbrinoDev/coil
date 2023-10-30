@@ -161,7 +161,7 @@ base class _ProxyCoil<T, U> extends Coil<U> {
       : super((Ref ref) {
           final element = (ref as Scope)._owner;
           if (element == null) {
-            throw AssertionError('Failed to mount :(');
+            throw UnimplementedError('failed to mount on scope? :(');
           }
 
           // Create relationship between host and parent elements
@@ -265,6 +265,8 @@ class Scope implements Ref {
       listener(null, element.state);
     }
 
+    _owner?._addSubscription(dispose);
+
     return (
       get: () => element.state,
       dispose: dispose,
@@ -275,13 +277,15 @@ class Scope implements Ref {
   void invalidate<T>(Coil<T> coil) => _elements[coil]?._invalidate();
 
   void dispose() {
-    if (_owner case final owner?) {
-      _unmount(owner);
-    } else {
-      _elements
-        ..values.forEach(_unmount)
-        ..clear();
-    }
+    Future(() {
+      if (_owner case final owner?) {
+        _unmount(owner);
+      } else {
+        _elements
+          ..values.toList().forEach(_unmount)
+          ..clear();
+      }
+    });
   }
 
   CoilElement<T> _resolve<T>(Coil<T> coil, {bool mount = true, bool listen = false}) {
@@ -318,6 +322,36 @@ class Scope implements Ref {
     _elements.remove(element._coil);
     element.dispose();
   }
+
+  late final _schedule = CoilScheduler.instance._schedule;
+}
+
+class CoilScheduler {
+  static final instance = CoilScheduler();
+
+  Timer? _timer;
+  VoidCallback? _pendingTask;
+
+  void _schedule(VoidCallback task) {
+    if (_timer case final timer?) {
+      if (timer.isActive) {
+        _pendingTask = task;
+        return;
+      } else if (_pendingTask case final pendingTask?) {
+        _pendingTask = null;
+        return pendingTask();
+      }
+    }
+
+    _timer = Timer(Duration(milliseconds: 0), () {
+      task();
+
+      if (_pendingTask case final pendingTask?) {
+        _pendingTask = null;
+        _schedule(pendingTask);
+      }
+    });
+  }
 }
 
 @optionalTypeArgs
@@ -335,11 +369,15 @@ class CoilElement<T> {
   T? _state;
 
   set state(T value) {
+    // print((0, this, _state, value));
     if (_state != value) {
       final oldState = _state;
       _state = value;
-      _notifyListeners(oldState);
-      _invalidateDependents();
+
+      _scope?._schedule(() {
+        _notifyListeners(oldState);
+        _invalidateDependents();
+      });
     }
   }
 
@@ -356,18 +394,22 @@ class CoilElement<T> {
 
   void _mount() {
     if (_scope case final scope?) {
+      // print(('mount', this));
       state = _coil.factory(scope);
     }
   }
 
   void _invalidate() {
+    // print(('inv', this));
     _invalidateSubscriptions();
     _subscriptions.clear();
 
     if (_listeners.isEmpty && _dependents.isEmpty) {
-      _scope?._unmount(this);
+      // _scope?._unmount(this);
     } else {
+      // _scope?._schedule(() {
       _mount(); //todo: maybe scheduler?
+      // });
     }
   }
 
