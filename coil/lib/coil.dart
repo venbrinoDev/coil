@@ -231,6 +231,7 @@ class Scope implements Ref {
   Scope()
       : _owner = null,
         _parent = null,
+        _scheduler = CoilScheduler(),
         _elements = {};
 
   Scope._({
@@ -238,11 +239,13 @@ class Scope implements Ref {
     required Scope parent,
   })  : _owner = owner,
         _parent = parent,
+        _scheduler = parent._scheduler,
         _elements = parent._elements;
 
   final CoilElement? _owner;
   final Scope? _parent;
   final Map<Coil, CoilElement> _elements;
+  final CoilScheduler _scheduler;
 
   @visibleForTesting
   Map<Coil, CoilElement> get elements => _elements;
@@ -277,15 +280,14 @@ class Scope implements Ref {
   void invalidate<T>(Coil<T> coil) => _elements[coil]?._invalidate();
 
   void dispose() {
-    Future(() {
-      if (_owner case final owner?) {
-        _unmount(owner);
-      } else {
-        _elements
-          ..values.toList().forEach(_unmount)
-          ..clear();
-      }
-    });
+    if (_owner case final owner?) {
+      _unmount(owner);
+      _scheduler.dispose();
+    } else {
+      _elements
+        ..values.toList(growable: false).forEach(_unmount)
+        ..clear();
+    }
   }
 
   CoilElement<T> _resolve<T>(Coil<T> coil, {bool mount = true, bool listen = false}) {
@@ -322,35 +324,52 @@ class Scope implements Ref {
     _elements.remove(element._coil);
     element.dispose();
   }
-
-  late final _schedule = CoilScheduler.instance._schedule;
 }
 
 class CoilScheduler {
-  static final instance = CoilScheduler();
+  final Set<CoilElement> _elements = {};
 
-  Timer? _timer;
-  VoidCallback? _pendingTask;
+  Completer<void>? _completer;
+
+  void remount(CoilElement element) {
+    element._remount();
+
+    _elements.add(element);
+    _schedule(() {
+      for (int i = _elements.length - 1; i >= 0; i--) {
+        final element = _elements.elementAt(i);
+        if (element.mounted && element.isActive) {
+          element._remount();
+        } else {
+          element._scope?._unmount(element);
+        }
+      }
+      _elements.clear();
+    });
+  }
 
   void _schedule(VoidCallback task) {
-    if (_timer case final timer?) {
-      if (timer.isActive) {
-        _pendingTask = task;
-        return;
-      } else if (_pendingTask case final pendingTask?) {
-        _pendingTask = null;
-        return pendingTask();
-      }
+    if (_completer != null) {
+      return;
     }
 
-    _timer = Timer(Duration(milliseconds: 0), () {
-      task();
-
-      if (_pendingTask case final pendingTask?) {
-        _pendingTask = null;
-        _schedule(pendingTask);
+    _completer = Completer();
+    Future(() {
+      final completer = _completer;
+      if (completer == null) {
+        return;
       }
+      completer.complete();
+
+      task();
+      _completer = null;
     });
+  }
+
+  void dispose() {
+    _elements.clear();
+    _completer?.complete();
+    _completer = null;
   }
 }
 
@@ -363,54 +382,43 @@ class CoilElement<T> {
   final Set<CoilElement> _dependents = {};
   final Set<VoidCallback> _subscriptions = {};
 
+  bool get isActive => _listeners.isNotEmpty || _dependents.isNotEmpty;
+
   Scope? _scope;
 
   T get state => _state!;
   T? _state;
 
   set state(T value) {
-    // print((0, this, _state, value));
     if (_state != value) {
       final oldState = _state;
       _state = value;
-
-      _scope?._schedule(() {
-        _notifyListeners(oldState);
-        _invalidateDependents();
-      });
+      _notifyListeners(oldState);
+      _invalidateDependents();
     }
   }
 
   bool get mounted => _state != null;
 
-  void dispose() {
-    _state = null;
-    _scope = null;
-    _invalidateSubscriptions();
-    _subscriptions.clear();
-    _listeners.clear();
-    _dependents.clear();
-  }
-
   void _mount() {
     if (_scope case final scope?) {
-      // print(('mount', this));
-      state = _coil.factory(scope);
+      _state = _coil.factory(scope);
+    }
+  }
+
+  void _remount() {
+    final oldState = _state;
+    _mount();
+    if (oldState != state) {
+      _notifyListeners(oldState);
+      _invalidateDependents();
     }
   }
 
   void _invalidate() {
-    // print(('inv', this));
     _invalidateSubscriptions();
     _subscriptions.clear();
-
-    if (_listeners.isEmpty && _dependents.isEmpty) {
-      // _scope?._unmount(this);
-    } else {
-      // _scope?._schedule(() {
-      _mount(); //todo: maybe scheduler?
-      // });
-    }
+    _scope?._scheduler.remount(this);
   }
 
   VoidCallback _addListener(CoilListener<T> listener) {
@@ -440,6 +448,15 @@ class CoilElement<T> {
     }
   }
 
+  void dispose() {
+    _state = null;
+    _scope = null;
+    _invalidateSubscriptions();
+    _subscriptions.clear();
+    _listeners.clear();
+    _dependents.clear();
+  }
+
   @override
   String toString() {
     if (_coil.debugName case final debugName?) {
@@ -459,6 +476,8 @@ class _CoilState<T> {
   T get value => _factory();
 
   set value(T value) => _onUpdate(value);
+
+  void update(CoilMutation<T> updater) => value = updater(value);
 
   @override
   String toString() => 'CoilState($value)';

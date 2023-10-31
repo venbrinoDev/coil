@@ -1,10 +1,10 @@
 import 'package:coil/coil.dart';
 
 final firstname = Coil((_) => 'First', debugName: 'firstname');
-final lastname = Coil((_) => 'Last', debugName: 'lastname');
+final lastname = MutableCoil((_) => 'Last', debugName: 'lastname');
 final age = MutableCoil((_) => 0, debugName: 'age');
 
-final passThrough = MutableCoil.family((_, int value) => value, debugName: 'pass-through');
+final passThrough = Coil.family((_, int value) => value, debugName: 'pass-through');
 final mutablePassThrough = MutableCoil.family((_, int value) => value, debugName: 'mutable-pass-through');
 
 final doubleAge = Coil((ref) => ref.get(age.state).value * 2, debugName: 'double-age');
@@ -30,7 +30,7 @@ final doubleStream = StreamCoil(
 final cubicStream = StreamCoil(
   (ref) async* {
     ref.listen(stream, (previous, next) {
-      log('inner-stream', (previous, next));
+      log('listen-inner-stream', (previous, next));
     });
 
     yield (await ref.get(stream.async)) * 3;
@@ -41,6 +41,7 @@ final cubicStream = StreamCoil(
 void main() async {
   final scope = Scope();
 
+  /** Primitives **/
   log('result', scope.get(result));
 
   scope.listen(age, (previous, next) {
@@ -49,6 +50,10 @@ void main() async {
 
   scope.listen(doubleAge, (previous, next) {
     log('listen-double-age', (previous, next));
+  });
+
+  scope.listen(fullname, (previous, next) {
+    log('listen-fullname', (previous, next));
   });
 
   scope.get(age.state).value++;
@@ -63,15 +68,25 @@ void main() async {
 
   log('result', scope.get(result));
 
-  log('pass-through', scope.get(passThrough(1)));
+  scope.get(lastname.state).update((value) => 'v. $value');
 
-  log('mutable-pass-through', scope.get(passThrough(1)));
-
-  scope.get(passThrough(1).state).value++;
-
-  log('mutable-pass-through', scope.get(passThrough(1)));
+  log('fullname', scope.get(fullname));
 
   log('double-age', scope.get(doubleAge));
+
+  log('result', scope.get(result));
+
+  /** Families **/
+
+  log('pass-through', scope.get(passThrough(1)));
+
+  log('mutable-pass-through', scope.get(mutablePassThrough(1)));
+
+  scope.get(mutablePassThrough(1).state).value++;
+
+  log('mutable-pass-through', scope.get(mutablePassThrough(1)));
+
+  /** Futures **/
 
   log('await-delayed', await scope.get(delayed.async));
 
@@ -84,6 +99,8 @@ void main() async {
   );
 
   log('un-delayed', scope.get(unDelayed));
+
+  /** Streams **/
 
   scope.listen(stream, (previous, next) {
     log('listen-stream', (previous, next));
@@ -102,6 +119,8 @@ void main() async {
   scope.invalidate(stream);
 
   log('await-cubic-stream', await scope.get(cubicStream.async));
+
+  scope.dispose();
 }
 
 void log<T>(String tag, T object) {
