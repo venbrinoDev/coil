@@ -97,15 +97,13 @@ final class FutureCoil<T> extends AsyncValueCoil<T> {
             case Future<T> future:
               final element = (ref as Scope)._owner;
               if (element != null) {
-                element
-                  .._invalidateSubscriptions()
-                  .._addSubscription(
-                    future.then((value) {
-                      element.state = AsyncSuccess<T>(value);
-                    }).catchError((Object error, StackTrace stackTrace) {
-                      element.state = AsyncFailure<T>(error, stackTrace);
-                    }).ignore,
-                  );
+                element._addSubscription(
+                  future.then((value) {
+                    element.state = AsyncSuccess<T>(value);
+                  }).catchError((Object error, StackTrace stackTrace) {
+                    element.state = AsyncFailure<T>(error, stackTrace);
+                  }).ignore,
+                );
               }
 
               return AsyncValueCoil._enrichLoadingState<T>(element);
@@ -126,15 +124,13 @@ final class StreamCoil<T> extends AsyncValueCoil<T> {
       : super((Ref ref) {
           final element = (ref as Scope)._owner;
           if (element != null) {
-            element
-              .._invalidateSubscriptions()
-              .._addSubscription(
-                factory(ref).listen((value) {
-                  element.state = AsyncSuccess<T>(value);
-                }, onError: (Object error, StackTrace stackTrace) {
-                  element.state = AsyncFailure(error, stackTrace);
-                }).cancel,
-              );
+            element._addSubscription(
+              factory(ref).listen((value) {
+                element.state = AsyncSuccess<T>(value);
+              }, onError: (Object error, StackTrace stackTrace) {
+                element.state = AsyncFailure(error, stackTrace);
+              }).cancel,
+            );
           }
 
           return AsyncValueCoil._enrichLoadingState<T>(element);
@@ -210,17 +206,15 @@ final class AsyncCoil<T> extends _ProxyCoil<AsyncValue<T>, Future<T>> {
           if (ref.parent.state case AsyncSuccess<T>(:final value)) {
             resolve(value);
           } else {
-            ref.element
-              .._invalidateSubscriptions()
-              .._addSubscription(
-                ref.parent._addListener(
-                  (_, next) => switch (next) {
-                    AsyncLoading<T>() => null,
-                    AsyncFailure<T>(:final error, :final stackTrace) => resolveError(error, stackTrace),
-                    AsyncSuccess<T>(:final value) => resolve(value),
-                  },
-                ),
-              );
+            ref.element._addSubscription(
+              ref.parent._addListener(
+                (_, next) => switch (next) {
+                  AsyncLoading<T>() => null,
+                  AsyncFailure<T>(:final error, :final stackTrace) => resolveError(error, stackTrace),
+                  AsyncSuccess<T>(:final value) => resolve(value),
+                },
+              ),
+            );
           }
 
           return completer.future;
@@ -282,11 +276,11 @@ class Scope implements Ref {
   void dispose() {
     if (_owner case final owner?) {
       _unmount(owner);
-      _scheduler.dispose();
     } else {
       _elements
         ..values.toList(growable: false).forEach(_unmount)
         ..clear();
+      _scheduler.dispose();
     }
   }
 
