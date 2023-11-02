@@ -140,10 +140,10 @@ class Scope<U> implements Ref<U> {
   }
 
   void dispose() {
-    _onDispose?.call();
     _elements
       ..forEach((_, element) => element._dispose())
       ..clear();
+    _onDispose?.call();
   }
 
   CoilElement<T> _resolve<T>(Coil<T> coil, {bool mount = true, bool listen = false}) {

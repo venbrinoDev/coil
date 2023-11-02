@@ -21,6 +21,7 @@ final counter = Coil((Ref<int> ref) {
   });
 
   ref.onDispose(() {
+    log('on-dispose-counter', 0);
     timer.cancel();
   });
 
