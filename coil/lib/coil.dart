@@ -140,9 +140,13 @@ class Scope<U> implements Ref<U> {
   }
 
   void dispose() {
-    _elements
-      ..forEach((_, element) => element._dispose())
-      ..clear();
+    if (_owner case final owner?) {
+      _unmount(owner);
+    } else {
+      _elements
+        ..values.toList(growable: false).forEach(_unmount)
+        ..clear();
+    }
     _onDispose?.call();
   }
 
@@ -170,10 +174,13 @@ class Scope<U> implements Ref<U> {
     }
   }
 
-  void _mount<T>(CoilElement<T> element) {
-    element
-      .._scope = Scope._(element, this)
-      .._mount();
+  void _mount<T>(CoilElement<T> element) => element
+    .._scope = Scope._(element, this)
+    .._mount();
+
+  void _unmount(CoilElement element) {
+    element._dispose();
+    _elements.remove(element._coil);
   }
 }
 
