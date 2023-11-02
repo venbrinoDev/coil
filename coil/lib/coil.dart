@@ -78,7 +78,7 @@ class Scope<U> implements Ref<U> {
   final Map<Coil, CoilElement> _elements;
 
   @override
-  T get<T>(Coil<T> coil, {bool listen = true}) => _resolve(coil).state;
+  T get<T>(Coil<T> coil, {bool listen = true}) => _resolve(coil, listen: listen).state;
 
   @override
   T mutate<T>(Coil<T> coil, CoilMutation<T> updater) {
@@ -99,7 +99,20 @@ class Scope<U> implements Ref<U> {
     CoilListener<T> listener, {
     bool fireImmediately = false,
   }) {
-    throw UnimplementedError();
+    final element = _resolve(coil, mount: false);
+    final dispose = element._addListener(listener);
+
+    final previousState = element._state;
+    _mount(element);
+
+    if (fireImmediately) {
+      listener(previousState, element.state);
+    }
+
+    return (
+      get: () => element.state,
+      dispose: dispose,
+    );
   }
 
   @override
@@ -116,18 +129,34 @@ class Scope<U> implements Ref<U> {
     // TODO: Unimplemented
   }
 
-  CoilElement<T> _resolve<T>(Coil<T> coil) {
+  CoilElement<T> _resolve<T>(Coil<T> coil, {bool mount = true, bool listen = false}) {
     switch (_elements[coil]) {
       case CoilElement<T> element:
+        if (listen) {
+          _owner?._dependsOn(element);
+        }
+
         return element;
       case _:
         final element = coil.createElement();
         _elements[coil] = element;
 
-        element.state = coil.factory(Scope._(element, this));
+        if (listen) {
+          _owner?._dependsOn(element);
+        }
+
+        if (mount) {
+          _mount(element);
+        }
 
         return element;
     }
+  }
+
+  void _mount<T>(CoilElement<T> element) {
+    element
+      .._scope = Scope._(element, this)
+      .._mount();
   }
 }
 
@@ -136,6 +165,10 @@ class CoilElement<T> {
   CoilElement(this._coil);
 
   final Coil<T> _coil;
+  final Set<CoilListener<T>> _listeners = {};
+  final Set<CoilElement> _dependents = {};
+
+  Scope<T>? _scope;
 
   T get state {
     assert(_state != null, 'Needs to have its state set at least once');
@@ -145,7 +178,40 @@ class CoilElement<T> {
   T? _state;
 
   set state(T value) {
-    _state = value;
+    if (_state != value) {
+      final oldState = _state;
+      _state = value;
+
+      _notifyListeners(oldState);
+
+      for (final dependent in _dependents) {
+        dependent._mount();
+      }
+    }
+  }
+
+  void _mount() {
+    if (_scope case final scope?) {
+      final oldState = _state;
+      _state = _coil.factory(scope);
+
+      if (oldState != null && oldState != _state) {
+        _notifyListeners(oldState);
+      }
+    }
+  }
+
+  VoidCallback _addListener(CoilListener<T> listener) {
+    _listeners.add(listener);
+    return () => _listeners.remove(listener);
+  }
+
+  void _dependsOn(CoilElement element) => element._dependents.add(this);
+
+  void _notifyListeners(T? oldState) {
+    for (final listener in _listeners) {
+      listener(oldState, state);
+    }
   }
 
   @override
