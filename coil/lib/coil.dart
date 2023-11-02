@@ -117,7 +117,7 @@ class Scope<U> implements Ref<U> {
 
   @override
   void invalidate<T>(Coil<T> coil) {
-    throw UnimplementedError();
+    _elements[coil]?._invalidate();
   }
 
   @override
@@ -183,10 +183,7 @@ class CoilElement<T> {
       _state = value;
 
       _notifyListeners(oldState);
-
-      for (final dependent in _dependents) {
-        dependent._mount();
-      }
+      _invalidateDependents();
     }
   }
 
@@ -201,6 +198,11 @@ class CoilElement<T> {
     }
   }
 
+  void _invalidate() {
+    _mount();
+    _invalidateDependents();
+  }
+
   VoidCallback _addListener(CoilListener<T> listener) {
     _listeners.add(listener);
     return () => _listeners.remove(listener);
@@ -211,6 +213,12 @@ class CoilElement<T> {
   void _notifyListeners(T? oldState) {
     for (final listener in _listeners) {
       listener(oldState, state);
+    }
+  }
+
+  void _invalidateDependents() {
+    for (final dependent in _dependents) {
+      dependent._mount();
     }
   }
 
