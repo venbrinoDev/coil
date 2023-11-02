@@ -212,14 +212,12 @@ class CoilElement<T> {
 
       if (oldState != null && oldState != _state) {
         _notifyListeners(oldState);
+        _invalidateDependents();
       }
     }
   }
 
-  void _invalidate() {
-    _mount();
-    _invalidateDependents();
-  }
+  void _invalidate() => _mount();
 
   VoidCallback _addListener(CoilListener<T> listener) {
     _listeners.add(listener);
