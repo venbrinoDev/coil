@@ -77,6 +77,8 @@ class Scope<U> implements Ref<U> {
   final CoilElement<U>? _owner;
   final Map<Coil, CoilElement> _elements;
 
+  VoidCallback? _onDispose;
+
   @override
   T get<T>(Coil<T> coil, {bool listen = true}) => _resolve(coil, listen: listen).state;
 
@@ -122,11 +124,26 @@ class Scope<U> implements Ref<U> {
 
   @override
   void onDispose(VoidCallback callback) {
-    // TODO: Unimplemented
+    if (_owner case final owner?) {
+      final previousCallback = owner._onDispose;
+      owner._onDispose = () {
+        previousCallback?.call();
+        callback();
+      };
+    } else {
+      final previousCallback = _onDispose;
+      _onDispose = () {
+        previousCallback?.call();
+        callback();
+      };
+    }
   }
 
   void dispose() {
-    // TODO: Unimplemented
+    _onDispose?.call();
+    _elements
+      ..forEach((_, element) => element._dispose())
+      ..clear();
   }
 
   CoilElement<T> _resolve<T>(Coil<T> coil, {bool mount = true, bool listen = false}) {
@@ -169,6 +186,7 @@ class CoilElement<T> {
   final Set<CoilElement> _dependents = {};
 
   Scope<T>? _scope;
+  VoidCallback? _onDispose;
 
   T get state {
     assert(_state != null, 'Needs to have its state set at least once');
@@ -220,6 +238,14 @@ class CoilElement<T> {
     for (final dependent in _dependents) {
       dependent._mount();
     }
+  }
+
+  void _dispose() {
+    _state = null;
+    _scope = null;
+    _onDispose?.call();
+    _listeners.clear();
+    _dependents.clear();
   }
 
   @override

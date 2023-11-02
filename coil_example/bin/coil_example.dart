@@ -14,6 +14,10 @@ final passThrough = Coil.family((_, int value) => value, debugName: 'pass-throug
 final counter = Coil((Ref<int> ref) {
   final timer = Timer.periodic(Duration(milliseconds: 100), (_) {
     ref.mutateSelf((value) => (value ?? 0) + 1);
+
+    // if (value == 10) {
+    //   _.cancel();
+    // }
   });
 
   ref.onDispose(() {
@@ -80,7 +84,7 @@ void main() async {
 
   /** End Self Mutation **/
 
-  scope.dispose();
+  Timer(Duration(seconds: 3), () => scope.dispose());
 }
 
 void log<T>(String tag, T object) {
