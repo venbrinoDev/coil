@@ -70,12 +70,27 @@ class Scope<U> implements Ref<U> {
       : _owner = null,
         _elements = {};
 
+  Scope._(CoilElement<U>? owner, Scope parent)
+      : _owner = owner,
+        _elements = parent._elements;
+
   final CoilElement<U>? _owner;
   final Map<Coil, CoilElement> _elements;
 
   @override
   T get<T>(Coil<T> coil, {bool listen = true}) {
-    throw UnimplementedError();
+    switch (_elements[coil]) {
+      case CoilElement<T> element:
+        return element.state;
+      case _:
+        final element = coil.createElement();
+        _elements[coil] = element;
+
+        final state = coil.factory(Scope._(element, this));
+        element.state = state;
+
+        return state;
+    }
   }
 
   @override
