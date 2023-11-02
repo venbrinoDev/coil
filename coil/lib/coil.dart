@@ -78,24 +78,12 @@ class Scope<U> implements Ref<U> {
   final Map<Coil, CoilElement> _elements;
 
   @override
-  T get<T>(Coil<T> coil, {bool listen = true}) {
-    switch (_elements[coil]) {
-      case CoilElement<T> element:
-        return element.state;
-      case _:
-        final element = coil.createElement();
-        _elements[coil] = element;
-
-        final state = coil.factory(Scope._(element, this));
-        element.state = state;
-
-        return state;
-    }
-  }
+  T get<T>(Coil<T> coil, {bool listen = true}) => _resolve(coil).state;
 
   @override
   T mutate<T>(Coil<T> coil, CoilMutation<T> updater) {
-    throw UnimplementedError();
+    final element = _resolve(coil);
+    return element.state = updater(element.state);
   }
 
   @override
@@ -126,6 +114,20 @@ class Scope<U> implements Ref<U> {
 
   void dispose() {
     // TODO: Unimplemented
+  }
+
+  CoilElement<T> _resolve<T>(Coil<T> coil) {
+    switch (_elements[coil]) {
+      case CoilElement<T> element:
+        return element;
+      case _:
+        final element = coil.createElement();
+        _elements[coil] = element;
+
+        element.state = coil.factory(Scope._(element, this));
+
+        return element;
+    }
   }
 }
 
