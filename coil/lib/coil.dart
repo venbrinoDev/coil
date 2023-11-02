@@ -24,6 +24,8 @@ abstract class Ref {
   });
 
   void invalidate<T>(Coil<T> coil);
+
+  void onDispose(VoidCallback callback);
 }
 
 @optionalTypeArgs
@@ -241,6 +243,8 @@ class Scope implements Ref {
   final Map<Coil, CoilElement> _elements;
   final CoilScheduler _scheduler;
 
+  VoidCallback? _onDispose;
+
   @visibleForTesting
   Map<Coil, CoilElement> get elements => _elements;
 
@@ -273,6 +277,19 @@ class Scope implements Ref {
   @override
   void invalidate<T>(Coil<T> coil) => _elements[coil]?._invalidate();
 
+  @override
+  void onDispose(VoidCallback callback) {
+    if (_owner case final owner?) {
+      owner._addSubscription(callback);
+    } else {
+      final previousCallback = _onDispose;
+      _onDispose = () {
+        previousCallback?.call();
+        callback();
+      };
+    }
+  }
+
   void dispose() {
     if (_owner case final owner?) {
       _unmount(owner);
@@ -280,6 +297,8 @@ class Scope implements Ref {
       _elements
         ..values.toList(growable: false).forEach(_unmount)
         ..clear();
+      _onDispose?.call();
+      _onDispose = null;
       _scheduler.dispose();
     }
   }
@@ -332,9 +351,7 @@ class CoilScheduler {
     _schedule(() {
       for (int i = _elements.length - 1; i >= 0; i--) {
         final element = _elements.elementAt(i);
-        if (element.mounted && element.isActive) {
-          element._remount();
-        } else {
+        if (!element.isActive) {
           element._scope?._unmount(element);
         }
       }
@@ -401,6 +418,9 @@ class CoilElement<T> {
   }
 
   void _remount() {
+    _invalidateSubscriptions();
+    _subscriptions.clear();
+
     final oldState = _state;
     _mount();
     if (oldState != state) {
@@ -409,11 +429,7 @@ class CoilElement<T> {
     }
   }
 
-  void _invalidate() {
-    _invalidateSubscriptions();
-    _subscriptions.clear();
-    _scope?._scheduler.remount(this);
-  }
+  void _invalidate() => _scope?._scheduler.remount(this);
 
   VoidCallback _addListener(CoilListener<T> listener) {
     _listeners.add(listener);

@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:coil/coil.dart';
 
 final firstname = Coil((_) => 'First', debugName: 'firstname');
@@ -27,8 +30,24 @@ final doubleStream = StreamCoil(
   },
   debugName: 'double-stream',
 );
+
+int count = 0;
+final countStream = Stream.periodic(Duration(milliseconds: 1000))
+    .transform(StreamTransformer.fromHandlers(handleData: (event, sink) => sink.add(count += 1)))
+    .asBroadcastStream();
+
 final cubicStream = StreamCoil(
   (ref) async* {
+    final id = Random().nextInt(1000);
+    final sub = countStream.listen((event) {
+      log('listen-to-count-stream $id', event);
+    });
+
+    ref.onDispose(() {
+      log('on-dispose-cubic-stream', id);
+      sub.cancel();
+    });
+
     ref.listen(stream, (previous, next) {
       log('listen-inner-stream', (previous, next));
     });
@@ -41,7 +60,27 @@ final cubicStream = StreamCoil(
 void main() async {
   final scope = Scope();
 
+  scope.onDispose(() {
+    log('on-dispose-scope', 0);
+  });
+
   /** Primitives **/
+  log('result', scope.get(result));
+
+  scope.listen(age, (previous, next) {
+    log('listen-age', (previous, next));
+  });
+
+  scope.listen(doubleAge, (previous, next) {
+    log('listen-double-age', (previous, next));
+  });
+
+  scope.listen(fullname, (previous, next) {
+    log('listen-fullname', (previous, next));
+  });
+
+  /** Primitives **/
+
   log('result', scope.get(result));
 
   scope.listen(age, (previous, next) {
