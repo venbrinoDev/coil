@@ -2,17 +2,17 @@ import 'dart:async';
 
 import 'package:coil/coil.dart';
 
-final firstname = Coil((_) => 'First', debugName: 'firstname');
-final lastname = Coil((_) => 'Last', debugName: 'lastname');
-final age = Coil((_) => 0, debugName: 'age');
+final firstname = Coil((_) => 'First');
+final lastname = Coil((_) => 'Last');
+final age = Coil((_) => 0);
 
-final doubleAge = Coil((ref) => ref.get(age) * 2, debugName: 'double-age');
-final result = Coil((ref) => '${ref.get(firstname)} ${ref.get(lastname)} (${ref.get(age)})', debugName: 'result');
+final doubleAge = Coil((ref) => ref.get(age) * 2);
+final result = Coil((ref) => '${ref.get(firstname)} ${ref.get(lastname)} (${ref.get(age)})');
 
-final passThrough = Coil.family((_, int value) => value, debugName: 'pass-through');
+final passThrough = Coil.family((_, int value) => value);
 
 final counter = Coil((Ref<int> ref) {
-  final timer = Timer.periodic(Duration(milliseconds: 100), (_) {
+  final timer = Timer.periodic(Duration(milliseconds: 300), (_) {
     ref.mutateSelf((value) => (value ?? 0) + 1);
 
     // if (value == 10) {
@@ -25,7 +25,7 @@ final counter = Coil((Ref<int> ref) {
   });
 
   return 0;
-}, debugName: 'timer');
+});
 
 void main() async {
   final scope = Scope();
