@@ -18,7 +18,7 @@ abstract class Ref<U> {
 
   T mutate<T>(Coil<T> coil, CoilMutation<T> updater);
 
-  U mutateSelf(CoilMutation<U?> updater);
+  U? mutateSelf(CoilMutation<U?> updater);
 
   CoilSubscription<T> listen<T>(
     Coil<T> coil,
@@ -88,9 +88,11 @@ class Scope<U> implements Ref<U> {
 
   @override
   @protected
-  @Deprecated('???')
-  U mutateSelf(CoilMutation<U?> updater) {
-    throw UnimplementedError();
+  U? mutateSelf(CoilMutation<U?> updater) {
+    if (updater(_owner?._state) case final state? when _owner != null) {
+      return _owner?.state = state;
+    }
+    return null;
   }
 
   @override
@@ -116,9 +118,7 @@ class Scope<U> implements Ref<U> {
   }
 
   @override
-  void invalidate<T>(Coil<T> coil) {
-    _elements[coil]?._invalidate();
-  }
+  void invalidate<T>(Coil<T> coil) => _elements[coil]?._invalidate();
 
   @override
   void onDispose(VoidCallback callback) {
