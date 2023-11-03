@@ -32,26 +32,57 @@ final counter = Coil((Ref<int> ref) {
   return 0;
 });
 
-final delayed = Coil<AsyncSnapshot<int>>((ref) {
-  final value = ref.mutateSelf((value) {
-    if (value != null && value.hasData) {
-      return value.inState(ConnectionState.waiting);
-    }
+// final delayed = Coil<AsyncSnapshot<int>>((ref) {
+//   final value = ref.mutateSelf((value) {
+//     if (value != null && value.hasData) {
+//       return value.inState(ConnectionState.waiting);
+//     }
+//
+//     return null;
+//   });
+//
+//   Future.delayed(const Duration(seconds: 3)).then((value) {
+//     ref.mutateSelf((value) {
+//       return AsyncSnapshot<int>.withData(
+//         ConnectionState.done,
+//         Random().nextInt(100),
+//       );
+//     });
+//   });
+//
+//   return value ?? const AsyncSnapshot<int>.waiting();
+// });
 
-    return null;
-  });
-
-  Future.delayed(const Duration(seconds: 3)).then((value) {
-    ref.mutateSelf((value) {
-      return AsyncSnapshot<int>.withData(
-        ConnectionState.done,
-        Random().nextInt(100),
-      );
-    });
-  });
-
-  return value ?? const AsyncSnapshot<int>.waiting();
+final delayed = FutureCoil((ref) async {
+  return Future.delayed(
+    const Duration(seconds: 3),
+    () => Random().nextInt(100),
+  );
 });
+
+final class FutureCoil<T> extends Coil<AsyncSnapshot<T>> {
+  FutureCoil(Future<T> Function(Ref<AsyncSnapshot<T>> ref) factory)
+      : super((ref) {
+          final value = ref.mutateSelf((value) {
+            if (value != null && value.hasData) {
+              return value.inState(ConnectionState.waiting);
+            }
+
+            return null;
+          });
+
+          factory(ref).then(
+            (result) => ref.mutateSelf(
+              (_) => AsyncSnapshot<T>.withData(
+                ConnectionState.done,
+                result,
+              ),
+            ),
+          );
+
+          return value ?? AsyncSnapshot<T>.waiting();
+        });
+}
 
 void main() {
   runApp(const CoilScope(child: MainApp()));
@@ -118,12 +149,12 @@ class MainApp extends StatelessWidget {
                       Builder(builder: (context) {
                         final state = context.get(delayed);
                         if (state.hasData && state.connectionState == ConnectionState.waiting) {
-                          return Text('Refreshing... (${state.requireData})');
+                          return Text('Delayed: Refreshing... (${state.requireData})');
                         } else if (state.hasData) {
-                          return Text(state.requireData.toString());
+                          return Text('Delayed: ${state.requireData}');
                         }
 
-                        return const Text('Loading...');
+                        return const Text('Delayed: Loading..');
                       }),
                     ],
                   ),
