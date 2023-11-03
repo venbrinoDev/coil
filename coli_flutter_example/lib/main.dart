@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:coil/coil.dart';
 import 'package:flutter/material.dart';
@@ -29,6 +30,27 @@ final counter = Coil((Ref<int> ref) {
   });
 
   return 0;
+});
+
+final delayed = Coil<AsyncSnapshot<int>>((ref) {
+  final value = ref.mutateSelf((value) {
+    if (value != null && value.hasData) {
+      return value.inState(ConnectionState.waiting);
+    }
+
+    return null;
+  });
+
+  Future.delayed(const Duration(seconds: 3)).then((value) {
+    ref.mutateSelf((value) {
+      return AsyncSnapshot<int>.withData(
+        ConnectionState.done,
+        Random().nextInt(100),
+      );
+    });
+  });
+
+  return value ?? const AsyncSnapshot<int>.waiting();
 });
 
 void main() {
@@ -93,6 +115,16 @@ class MainApp extends StatelessWidget {
                         builder: (context) => Text('Counter: ${context.get(counter)}'),
                       ),
                       spacing,
+                      Builder(builder: (context) {
+                        final state = context.get(delayed);
+                        if (state.hasData && state.connectionState == ConnectionState.waiting) {
+                          return Text('Refreshing... (${state.requireData})');
+                        } else if (state.hasData) {
+                          return Text(state.requireData.toString());
+                        }
+
+                        return const Text('Loading...');
+                      }),
                     ],
                   ),
                 ),
@@ -129,6 +161,11 @@ class MainApp extends StatelessWidget {
                     TextButton(
                       onPressed: () => context.invalidate(counter),
                       child: const Text('invalidate counter'),
+                    ),
+                    spacing,
+                    TextButton(
+                      onPressed: () => context.invalidate(delayed),
+                      child: const Text('invalidate delayed'),
                     ),
                   ],
                 )
