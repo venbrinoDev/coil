@@ -13,11 +13,11 @@ final passThrough = Coil.family((_, int value) => value);
 
 final counter = Coil((Ref<int> ref) {
   final timer = Timer.periodic(Duration(milliseconds: 300), (_) {
-    ref.mutateSelf((value) => (value ?? 0) + 1);
+    final value = ref.mutateSelf((value) => (value ?? 0) + 1);
 
-    // if (value == 10) {
-    //   _.cancel();
-    // }
+    if (value == 10) {
+      ref.invalidateSelf();
+    }
   });
 
   ref.onDispose(() {

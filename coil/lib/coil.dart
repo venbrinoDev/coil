@@ -128,6 +128,7 @@ class Scope<U> implements Ref<U> {
   void invalidate<T>(Coil<T> coil) => _elements[coil]?._invalidate();
 
   @override
+  @protected
   void invalidateSelf() => _owner?._invalidate();
 
   @override
