@@ -5,6 +5,7 @@ typedef ValueCallback<T> = T Function();
 typedef CoilFactory<T> = T Function(Ref<T> ref);
 typedef CoilMutation<T> = T Function(T value);
 typedef CoilListener<T> = void Function(T? previous, T next);
+@optionalTypeArgs
 typedef CoilSubscription<T> = ({ValueCallback<T> get, VoidCallback dispose});
 typedef CoilFamily<U, V extends Coil> = V Function(U arg);
 typedef CoilFamilyFactory<T, U> = T Function(Ref ref, U arg);
@@ -109,7 +110,9 @@ class Scope<U> implements Ref<U> {
     final dispose = element._addListener(listener);
 
     final previousState = element._state;
-    _mount(element);
+    if (previousState == null) {
+      _mount(element);
+    }
 
     if (fireImmediately) {
       listener(previousState, element.state);
@@ -153,6 +156,7 @@ class Scope<U> implements Ref<U> {
         ..clear();
     }
     _onDispose?.call();
+    _onDispose = null;
   }
 
   CoilElement<T> _resolve<T>(Coil<T> coil, {bool mount = true, bool listen = false}) {
@@ -229,7 +233,11 @@ class CoilElement<T> {
     }
   }
 
-  void _invalidate() => _mount();
+  void _invalidate() {
+    _onDispose?.call();
+    _onDispose = null;
+    _mount();
+  }
 
   VoidCallback _addListener(CoilListener<T> listener) {
     _listeners.add(listener);
@@ -246,7 +254,7 @@ class CoilElement<T> {
 
   void _invalidateDependents() {
     for (final dependent in _dependents) {
-      dependent._mount();
+      dependent._invalidate();
     }
   }
 
@@ -254,6 +262,7 @@ class CoilElement<T> {
     _state = null;
     _scope = null;
     _onDispose?.call();
+    _onDispose = null;
     _listeners.clear();
     _dependents.clear();
   }
