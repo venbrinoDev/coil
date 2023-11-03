@@ -42,7 +42,7 @@ base class Coil<T> {
     CoilFamilyFactory<T, U> factory, {
     String? debugName,
   }) {
-    return (U arg) => Coil((ref) => factory(ref, arg), key: arg, debugName: debugName);
+    return (U arg) => Coil((ref) => factory(ref, arg), key: Object.hash(arg, T, U), debugName: debugName);
   }
 
   @internal
@@ -61,7 +61,7 @@ base class Coil<T> {
       identical(this, other) || other is Coil && runtimeType == other.runtimeType && key == other.key;
 
   @override
-  int get hashCode => key?.hashCode ?? identityHashCode(this);
+  int get hashCode => key != null ? Object.hash(key, T) : identityHashCode(this);
 
   @override
   String toString() => 'Coil($debugName)[$hashCode]';
