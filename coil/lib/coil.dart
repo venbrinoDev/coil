@@ -28,6 +28,8 @@ abstract class Ref<U> {
 
   void invalidate<T>(Coil<T> coil);
 
+  void invalidateSelf();
+
   void onDispose(VoidCallback callback);
 }
 
@@ -121,6 +123,9 @@ class Scope<U> implements Ref<U> {
 
   @override
   void invalidate<T>(Coil<T> coil) => _elements[coil]?._invalidate();
+
+  @override
+  void invalidateSelf() => _owner?._invalidate();
 
   @override
   void onDispose(VoidCallback callback) {
